@@ -32,6 +32,7 @@ data "aws_iam_policy_document" "ecs_assume" {
 resource "aws_ecs_cluster" "this" {
   name = var.name
 
+  # tfsec:ignore:aws-ecs-enable-container-insight -- disabled by default, extra CloudWatch metrics cost not needed yet
   setting {
     name  = "containerInsights"
     value = var.enable_container_insights ? "enabled" : "disabled"
@@ -41,6 +42,7 @@ resource "aws_ecs_cluster" "this" {
 }
 
 resource "aws_cloudwatch_log_group" "this" {
+  # tfsec:ignore:aws-cloudwatch-log-group-customer-key -- default AWS-managed encryption is enough here
   name              = "/ecs/${var.name}"
   retention_in_days = var.log_retention_days
 
@@ -67,6 +69,7 @@ resource "random_password" "jwt_secret" {
 }
 
 resource "aws_secretsmanager_secret" "jwt_secret" {
+  # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
   name = "${var.name}/jwt-secret-key"
   tags = local.tags
 }
@@ -77,6 +80,7 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
 }
 
 resource "aws_secretsmanager_secret" "resend_api_key" {
+  # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
   name = "${var.name}/resend-api-key"
   tags = local.tags
 }
@@ -133,27 +137,30 @@ resource "aws_security_group" "alb" {
   vpc_id      = var.vpc_id
 
   ingress {
+    description = "HTTP from the internet"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-ingress-sgr -- public ALB by design
   }
 
   dynamic "ingress" {
     for_each = local.serve_https ? [443] : []
     content {
+      description = "HTTPS from the internet"
       from_port   = ingress.value
       to_port     = ingress.value
       protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
+      cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-ingress-sgr -- public ALB by design
     }
   }
 
   egress {
+    description = "All outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- ALB only forwards, nothing sensitive to exfiltrate
   }
 
   tags = merge(local.tags, {
@@ -167,6 +174,7 @@ resource "aws_security_group" "service" {
   vpc_id      = var.vpc_id
 
   ingress {
+    description     = "App port from the ALB only"
     from_port       = var.container_port
     to_port         = var.container_port
     protocol        = "tcp"
@@ -174,10 +182,11 @@ resource "aws_security_group" "service" {
   }
 
   egress {
+    description = "All outbound traffic (e.g. RDS, Resend API)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- needs internet egress (Resend API) since there's no NAT gateway
   }
 
   tags = merge(local.tags, {
@@ -187,10 +196,12 @@ resource "aws_security_group" "service" {
 
 resource "aws_lb" "this" {
   name               = var.name
-  internal           = false
+  internal           = false # tfsec:ignore:aws-elb-alb-not-public -- this is the public API entrypoint
   load_balancer_type = "application"
   subnets            = var.public_subnet_ids
   security_groups    = [aws_security_group.alb.id]
+
+  drop_invalid_header_fields = true
 
   tags = local.tags
 }
@@ -217,7 +228,7 @@ resource "aws_lb_target_group" "this" {
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
-  protocol          = "HTTP"
+  protocol          = "HTTP" # tfsec:ignore:aws-elb-http-not-used -- HTTPS added once certificate_arn is set (no verified domain/ACM cert yet)
 
   dynamic "default_action" {
     for_each = local.serve_https ? [1] : []

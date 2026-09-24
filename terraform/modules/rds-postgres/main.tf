@@ -60,10 +60,14 @@ resource "aws_security_group_rule" "egress_all" {
   to_port           = 0
   protocol          = "-1"
   security_group_id = aws_security_group.this.id
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- RDS has no internet route anyway (private subnet, no NAT)
+  description       = "All outbound traffic"
 }
 
 resource "aws_db_instance" "this" {
+  # tfsec:ignore:aws0176 -- app connects with a password via SQLAlchemy/asyncpg, not IAM tokens;
+  # switching would need an app-side change, out of scope here.
+  # tfsec:ignore:aws-rds-enable-performance-insights -- extra cost not needed at this traffic level
   identifier     = var.name
   engine         = "postgres"
   engine_version = var.engine_version
@@ -100,6 +104,7 @@ resource "aws_db_instance" "this" {
 }
 
 resource "aws_secretsmanager_secret" "this" {
+  # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
   name = "${var.name}/database"
   tags = local.tags
 }

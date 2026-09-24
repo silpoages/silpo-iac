@@ -25,7 +25,7 @@ jobs:
       - name: Set up Terragrunt
         uses: autero1/action-terragrunt@v3
         with:
-          terragrunt_version: ${{ env.TERRAGRUNT_VERSION }}
+          terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
 
       - name: Set up TFLint
         uses: terraform-linters/setup-tflint@v4
@@ -100,7 +100,7 @@ jobs:
       - name: Set up Terragrunt
         uses: autero1/action-terragrunt@v3
         with:
-          terragrunt_version: ${{ env.TERRAGRUNT_VERSION }}
+          terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
