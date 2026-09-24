@@ -1,0 +1,27 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Terragrunt
+**/.terragrunt-cache/*
+terragrunt-debug.tfvars.json
+
+# Terraform/Terragrunt generated files (see generate blocks in terragrunt.hcl)
+backend.tf
+provider.tf
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
