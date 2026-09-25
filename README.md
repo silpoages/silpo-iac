@@ -160,15 +160,20 @@ further.
   `docs/architecture/architecture.png` (the image embedded above), no AWS credentials needed
   since it's hand-described, not derived from a live plan. Not a required status check —
   informational only. On `push` to `main`/`develop`, if the rendered image differs from the one
-  committed, it opens (or updates) a PR with the refresh — it can't push directly, since that
-  would need to bypass the same "PR required" branch protection this repo otherwise enforces.
-  That PR still needs a human approval + merge like any other, same as `silpo-backend`'s code
-  owner rule on `main`. GitHub also doesn't run `Lint`/`Test`/`Build` on PRs opened by the
-  default `GITHUB_TOKEN`, so they won't show up on that PR on their own — push an empty commit,
-  or use "re-run" once any check appears, before merging. (A PAT instead of `GITHUB_TOKEN` would
-  remove that one step, at the cost of a more powerful credential stored as a secret — not done
-  here by default.) Update `diagram.py` itself by hand alongside any change to what's actually
+  committed, it opens a PR with the refresh, authenticated as `DIAGRAM_BOT_TOKEN` (a fine-grained
+  PAT scoped to just this repo, belonging to a user in `bypass_pull_request_allowances`) instead
+  of the default `GITHUB_TOKEN` — the built-in token can't trigger `Lint`/`Test`/`Build` on a PR
+  it opens itself (GitHub's own loop-prevention), so those checks would never run on it
+  otherwise. The PR is set to auto-merge (squash) the moment those checks pass — that user is
+  exempted from the required-review count, but not from the checks themselves, so this is the
+  one specific case in this repo that merges into a protected branch without a human clicking
+  approve. Update `diagram.py` itself by hand alongside any change to what's actually
   provisioned; the image follows automatically on the next push.
+
+  **Trade-off worth knowing:** `DIAGRAM_BOT_TOKEN` is stored as a repo secret and belongs to an
+  account that can bypass PR review on `main`/`develop`. If it ever leaked, whoever has it could
+  merge anything into either branch without review (though `Lint`/`Test`/`Build` would still have
+  to pass). Scoped to just this one repository specifically to limit that blast radius.
 
 All of `Lint`, `Test` and `Build` (but not `Diagram` or `mirror-gitlab`) are required status
 checks on `main` and `develop`, matching `silpo-backend`'s branch protection.

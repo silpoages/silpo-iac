@@ -149,24 +149,38 @@ jobs:
       # main/develop require a PR (see branch protection), so this can't push there directly —
       # it opens a PR instead, same as any other change. Only runs on push; a no-op if the
       # rendered image already matches what's committed (nothing to open a PR for).
+      #
+      # Uses DIAGRAM_BOT_TOKEN (a fine-grained PAT scoped to just this repo, belonging to a user
+      # in main/develop's bypass_pull_request_allowances) instead of the default GITHUB_TOKEN:
+      # GitHub doesn't run pull_request workflows for PRs opened by GITHUB_TOKEN (loop
+      # prevention), so Lint/Test/Build would never run on this PR otherwise.
       - name: Open PR if the diagram changed
         if: github.event_name == 'push'
+        id: diagram-pr
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.DIAGRAM_BOT_TOKEN }}
           add-paths: docs/architecture/architecture.png
           commit-message: 'chore: update architecture diagram'
           title: 'chore: update architecture diagram'
           body: |
             The rendered `docs/architecture/architecture.png` no longer matched the committed
-            one, opened automatically by the `Diagram` CI job on `${{ github.ref_name }}`.
-
-            Note: GitHub doesn't run `pull_request` workflows for PRs opened by the default
-            `GITHUB_TOKEN`, so `Lint`/`Test`/`Build` won't show up here on their own — push an
-            empty commit (or use the "re-run" button once any check appears) to get them to run
-            before merging.
+            one, opened automatically by the `Diagram` CI job on `${{ github.ref_name }}`. Set to
+            auto-merge once `Lint`/`Test`/`Build` pass — no action needed unless one of them fails.
           branch: bot/update-architecture-diagram-${{ github.ref_name }}
           base: ${{ github.ref_name }}
           delete-branch: true
+
+      # main/develop's branch protection exempts this token's user from the required-review
+      # count (bypass_pull_request_allowances), but not from required status checks — --auto
+      # queues the merge to happen the moment Lint/Test/Build report success on this PR, same
+      # bar as a human-authored change.
+      - name: Enable auto-merge
+        if: steps.diagram-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.DIAGRAM_BOT_TOKEN }}
+        run: |
+          gh pr merge ${{ steps.diagram-pr.outputs.pull-request-number }} --auto --squash --delete-branch
 
   mirror-gitlab:
     name: Mirror to GitLab
