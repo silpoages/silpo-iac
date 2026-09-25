@@ -7,8 +7,8 @@ locals {
   })
 }
 
+# tfsec:ignore:aws-ec2-require-vpc-flow-logs-for-all-vpcs -- extra CloudWatch Logs ingestion cost not needed yet; easy to add later
 resource "aws_vpc" "this" {
-  # tfsec:ignore:aws-ec2-require-vpc-flow-logs-for-all-vpcs -- extra CloudWatch Logs ingestion cost not needed yet; easy to add later
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -31,9 +31,10 @@ resource "aws_subnet" "public" {
   vpc_id            = aws_vpc.this.id
   cidr_block        = var.public_subnet_cidrs[count.index]
   availability_zone = var.azs[count.index]
-  # tfsec:ignore:aws-ec2-no-public-ip-subnet -- deliberate: the app (ecs-service) runs here with a
-  # public IP instead of behind a NAT gateway to avoid its ~US$35/month cost; the task's own
-  # security group still only allows inbound from the ALB. See root README's cost trade-offs.
+  # Deliberate: the app (ecs-service) runs here with a public IP instead of behind a NAT
+  # gateway, to avoid its ~US$35/month cost; the task's own security group still only allows
+  # inbound from the ALB. See root README's cost trade-offs.
+  # tfsec:ignore:aws-ec2-no-public-ip-subnet
   map_public_ip_on_launch = true
 
   tags = merge(local.tags, {

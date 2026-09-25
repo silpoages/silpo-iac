@@ -1,5 +1,5 @@
+# tfsec:ignore:aws-ecr-repository-customer-key -- default AES256 encryption is enough here
 resource "aws_ecr_repository" "this" {
-  # tfsec:ignore:aws-ecr-repository-customer-key -- default AES256 encryption is enough here
   name                 = var.name
   image_tag_mutability = var.image_tag_mutability
 

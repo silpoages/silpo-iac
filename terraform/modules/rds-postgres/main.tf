@@ -64,10 +64,10 @@ resource "aws_security_group_rule" "egress_all" {
   description       = "All outbound traffic"
 }
 
+# Password auth via SQLAlchemy/asyncpg, not IAM tokens (app-side change, out of scope here);
+# performance insights disabled to avoid extra cost at this traffic level.
+# tfsec:ignore:aws-rds-enable-iam-auth tfsec:ignore:aws-rds-enable-performance-insights
 resource "aws_db_instance" "this" {
-  # tfsec:ignore:aws0176 -- app connects with a password via SQLAlchemy/asyncpg, not IAM tokens;
-  # switching would need an app-side change, out of scope here.
-  # tfsec:ignore:aws-rds-enable-performance-insights -- extra cost not needed at this traffic level
   identifier     = var.name
   engine         = "postgres"
   engine_version = var.engine_version
@@ -103,8 +103,8 @@ resource "aws_db_instance" "this" {
   }
 }
 
+# tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
 resource "aws_secretsmanager_secret" "this" {
-  # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
   name = "${var.name}/database"
   tags = local.tags
 }

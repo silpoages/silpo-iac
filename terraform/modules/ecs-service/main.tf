@@ -41,8 +41,8 @@ resource "aws_ecs_cluster" "this" {
   tags = local.tags
 }
 
+# tfsec:ignore:aws-cloudwatch-log-group-customer-key -- default AWS-managed encryption is enough here
 resource "aws_cloudwatch_log_group" "this" {
-  # tfsec:ignore:aws-cloudwatch-log-group-customer-key -- default AWS-managed encryption is enough here
   name              = "/ecs/${var.name}"
   retention_in_days = var.log_retention_days
 
@@ -68,8 +68,8 @@ resource "random_password" "jwt_secret" {
   special = false
 }
 
+# tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
 resource "aws_secretsmanager_secret" "jwt_secret" {
-  # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
   name = "${var.name}/jwt-secret-key"
   tags = local.tags
 }
@@ -79,8 +79,8 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
   secret_string = random_password.jwt_secret.result
 }
 
+# tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
 resource "aws_secretsmanager_secret" "resend_api_key" {
-  # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
   name = "${var.name}/resend-api-key"
   tags = local.tags
 }
