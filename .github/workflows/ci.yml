@@ -172,6 +172,14 @@ jobs:
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
+      # Single source of truth for the region: infracost.yml's projects reference ${AWS_REGION}
+      # (see its own header comment) instead of hardcoding it, so Infracost prices resources for
+      # wherever this stack actually deploys, read straight from env.hcl.
+      - name: Read AWS region from env.hcl
+        run: |
+          region=$(grep -oP 'aws_region\s*=\s*"\K[^"]+' terragrunt/live/shared/env.hcl)
+          echo "AWS_REGION=$region" >> "$GITHUB_ENV"
+
       - name: Generate cost estimate
         run: infracost breakdown --config-file infracost.yml --format json --out-file /tmp/infracost.json
 

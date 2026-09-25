@@ -31,7 +31,7 @@ dependency "ecr" {
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    repository_url = "000000000000.dkr.ecr.us-east-1.amazonaws.com/silpo-backend"
+    repository_url = "000000000000.dkr.ecr.sa-east-1.amazonaws.com/silpo-backend"
   }
 }
 
@@ -40,7 +40,7 @@ dependency "rds" {
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    secret_arn = "arn:aws:secretsmanager:us-east-1:000000000000:secret:mock-db-secret"
+    secret_arn = "arn:aws:secretsmanager:sa-east-1:000000000000:secret:mock-db-secret"
   }
 }
 
@@ -49,8 +49,10 @@ dependency "dns" {
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    zone_id             = "Z00000000000000000"
-    api_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+    zone_id = "Z00000000000000000"
+    # Unlike web_certificate_arn, this one is a real sa-east-1 ARN: only the CloudFront (web)
+    # cert is pinned to us-east-1 — the ALB cert lives in the stack's own region.
+    api_certificate_arn = "arn:aws:acm:sa-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
   }
 }
 

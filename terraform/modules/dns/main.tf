@@ -4,6 +4,15 @@ locals {
   })
 }
 
+# CloudFront only accepts ACM certificates issued in us-east-1, regardless of what region the
+# rest of the stack runs in (env.hcl's aws_region) — a fixed AWS requirement, not an environment
+# setting, so it's hardcoded here rather than passed in like the default (unaliased) provider,
+# which Terragrunt generates per-environment.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 # The zone itself isn't created here: registering domain_name through Route53 (a real purchase,
 # so outside what Terraform/this repo does) creates its public hosted zone automatically. If it's
 # registered elsewhere instead, create the zone by hand once and delegate to it via this module's
@@ -13,6 +22,8 @@ data "aws_route53_zone" "this" {
 }
 
 resource "aws_acm_certificate" "web" {
+  provider = aws.us_east_1
+
   domain_name               = var.web_domain_names[0]
   subject_alternative_names = slice(var.web_domain_names, 1, length(var.web_domain_names))
   validation_method         = "DNS"
@@ -42,6 +53,8 @@ resource "aws_route53_record" "web_validation" {
 }
 
 resource "aws_acm_certificate_validation" "web" {
+  provider = aws.us_east_1
+
   certificate_arn         = aws_acm_certificate.web.arn
   validation_record_fqdns = [for r in aws_route53_record.web_validation : r.fqdn]
 }

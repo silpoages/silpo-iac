@@ -11,7 +11,8 @@ dependency "dns" {
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    zone_id             = "Z00000000000000000"
+    zone_id = "Z00000000000000000"
+    # us-east-1, not the stack's own region: CloudFront only accepts ACM certs issued there.
     web_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
   }
 }
