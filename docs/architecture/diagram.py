@@ -3,6 +3,9 @@ terraform/modules + terragrunt/live/shared. Kept in sync by hand — update this
 alongside any change to what's actually deployed.
 """
 
+import re
+from pathlib import Path
+
 from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.compute import ECR, ECS
 from diagrams.aws.database import RDSPostgresqlInstance
@@ -11,6 +14,16 @@ from diagrams.aws.network import ELB, CloudFront
 from diagrams.aws.security import SecretsManager
 from diagrams.aws.storage import S3
 
+ENV_HCL = Path(__file__).resolve().parents[2] / "terragrunt" / "live" / "shared" / "env.hcl"
+
+
+def _read_aws_region() -> str:
+    match = re.search(r'aws_region\s*=\s*"([^"]+)"', ENV_HCL.read_text())
+    if not match:
+        raise ValueError(f"Could not find aws_region in {ENV_HCL}")
+    return match.group(1)
+
+
 graph_attr = {
     "fontsize": "14",
     "bgcolor": "white",
@@ -18,7 +31,7 @@ graph_attr = {
 }
 
 with Diagram(
-    "Silpo - AWS Deployment (us-east-1)",
+    f"Silpo - AWS Deployment ({_read_aws_region()})",
     filename="architecture",
     outformat="png",
     show=False,
