@@ -1,0 +1,59 @@
+# Infracost multi-project config. Each module is analyzed standalone (no Terragrunt, no AWS
+# credentials) with the same representative values used in terragrunt/live/shared/*/terragrunt.hcl
+# (including the same mock dependency outputs used there for validate/plan) — keep these two in
+# sync by hand if either changes. See README.md#cost-estimate.
+version: 0.1
+
+projects:
+  - path: terraform/modules/networking
+    name: networking
+    terraform_vars:
+      name: silpo-shared
+      azs: ["us-east-1a", "us-east-1b"]
+      vpc_cidr: "10.0.0.0/16"
+      public_subnet_cidrs: ["10.0.0.0/24", "10.0.1.0/24"]
+      private_subnet_cidrs: ["10.0.10.0/24", "10.0.11.0/24"]
+      enable_nat_gateway: false
+
+  - path: terraform/modules/ecr
+    name: ecr
+    terraform_vars:
+      name: silpo-backend
+      image_tag_mutability: "IMMUTABLE"
+      scan_on_push: true
+      untagged_expire_days: 14
+
+  - path: terraform/modules/rds-postgres
+    name: rds-postgres
+    terraform_vars:
+      name: silpo-shared
+      vpc_id: vpc-00000000000000000
+      subnet_ids: ["subnet-00000000000000001", "subnet-00000000000000002"]
+      allowed_cidr_blocks: ["10.0.0.0/16"]
+      instance_class: "db.t4g.micro"
+      allocated_storage: 20
+      max_allocated_storage: 20
+      multi_az: false
+      backup_retention_period: 3
+      deletion_protection: true
+      skip_final_snapshot: false
+
+  - path: terraform/modules/ecs-service
+    name: ecs-service
+    terraform_vars:
+      name: silpo-shared
+      vpc_id: vpc-00000000000000000
+      public_subnet_ids: ["subnet-00000000000000001", "subnet-00000000000000002"]
+      task_subnet_ids: ["subnet-00000000000000001", "subnet-00000000000000002"]
+      assign_public_ip: true
+      image: "000000000000.dkr.ecr.us-east-1.amazonaws.com/silpo-backend:latest"
+      container_port: 8000
+      cpu: 256
+      memory: 512
+      desired_count: 1
+
+  - path: terraform/modules/static-site
+    name: static-site
+    terraform_vars:
+      name: silpo-web-000000000000
+      spa_fallback: true
