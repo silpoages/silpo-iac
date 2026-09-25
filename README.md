@@ -15,6 +15,7 @@ config — Terragrunt 1.x runs OpenTofu by default).
 | IaC                 | OpenTofu + Terragrunt                            |
 | Cloud               | AWS                                              |
 | Compute             | ECS Fargate (single task) + Application Load Balancer |
+| Web hosting         | S3 + CloudFront (static SPA, `silpo-web`)        |
 | Database            | RDS PostgreSQL (single-AZ, `db.t4g.micro`)       |
 | Container registry  | ECR                                              |
 | Secrets             | AWS Secrets Manager                              |
@@ -32,6 +33,7 @@ terraform/
     ecr/            # Container registry for the silpo-backend image
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
     ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/Resend)
+    static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
 terragrunt/
   terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
@@ -41,7 +43,11 @@ terragrunt/
       ecr/
       rds/
       api/
+      web/
 ```
+
+`silpo-mobile` (Expo/React Native) has no unit here — it isn't deployed to AWS. Distribution goes
+through the app stores, and builds/OTA updates through Expo's own EAS service.
 
 ## Environments
 
@@ -70,11 +76,15 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   limit).
 - **Container Insights disabled** by default (`enable_container_insights = false` in `ecs-service`) —
   it adds CloudWatch metrics cost for observability this project doesn't need day to day.
+- **`silpo-web` on S3 + CloudFront** (`static-site` module), not another Fargate service. Static
+  hosting bills per request/GB served, not per second of uptime — at this traffic it's cents/month,
+  not another ~US$20-30 of always-on compute. `PriceClass_100` (North America + Europe edge
+  locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
 
 **Rough always-on monthly estimate** (`us-east-1`, on-demand pricing, excluding AWS free tier which
 likely covers most of this in year one): ALB ~US$18 (fixed) + RDS ~US$15 (instance + storage) +
-Fargate ~US$9 (1 task, 256/512) + Secrets Manager/CloudWatch/ECR ~US$2 ≈ **US$40-45/month**, dominated
-by the ALB.
+Fargate ~US$9 (1 task, 256/512) + Secrets Manager/CloudWatch/ECR ~US$2 + S3/CloudFront (`web` unit)
+~US$1 ≈ **US$40-45/month**, still dominated by the ALB.
 
 **If you need to go lower than that**: the only way to actually get near US$0 during idle hours is to
 stop running the API 24/7 — e.g. port `silpo-backend` to run on AWS Lambda (behind API Gateway
@@ -116,6 +126,13 @@ further.
 4. **Push an image.** The `ecr` unit's output (`repository_url`) is where `silpo-backend`'s CI
    should push images. The `api` unit currently deploys the `:latest` tag; wiring a real
    build-and-deploy pipeline in `silpo-backend` is a natural next step.
+5. **Deploy the web build.** The `web` unit only provisions the bucket and distribution — it
+   doesn't build or upload `silpo-web`. After building it there:
+   ```bash
+   aws s3 sync dist/ s3://<web unit's bucket_name output> --delete
+   aws cloudfront create-invalidation --distribution-id <web unit's distribution_id output> --paths "/*"
+   ```
+   Wiring this into `silpo-web`'s own CI is a natural next step, same as the backend's image push.
 
 ## CI/CD
 
