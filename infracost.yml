@@ -57,3 +57,8 @@ projects:
     terraform_vars:
       name: silpo-web-000000000000
       spa_fallback: true
+
+  # dns is intentionally left out: its only resources are ACM certs + Route53 records, both free,
+  # and it looks up its hosted zone with a `data` source that needs real AWS credentials to
+  # resolve — static analysis can't plan it. The zone itself is billed by domain registration
+  # (outside this repo), not by anything this module creates.

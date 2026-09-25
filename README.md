@@ -25,6 +25,7 @@ the CI `Diagram` job (see [CI/CD](#cicd)), not by hand.
 | Web hosting         | S3 + CloudFront (static SPA, `silpo-web`)        |
 | Database            | RDS PostgreSQL (single-AZ, `db.t4g.micro`)       |
 | Container registry  | ECR                                              |
+| DNS / TLS           | Route53 + ACM (`silpoages.com`)                  |
 | Secrets             | AWS Secrets Manager                              |
 | Linting             | `tofu fmt`, `terragrunt hcl fmt`, TFLint         |
 | Security scanning   | tfsec                                            |
@@ -41,6 +42,7 @@ terraform/
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
     ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/Resend)
     static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
+    dns/            # ACM certs (web + api) DNS-validated against the silpoages.com hosted zone
 terragrunt/
   terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
@@ -49,9 +51,16 @@ terragrunt/
       networking/
       ecr/
       rds/
+      dns/
       api/
       web/
 ```
+
+`dns` looks up an existing Route53 hosted zone for `silpoages.com` (a `data` source, not a resource) —
+it doesn't register the domain itself. Registering it (through Route53 or elsewhere) is a real
+purchase, so it's a manual, one-time step outside Terraform; Route53 creates the hosted zone
+automatically once that's done. `web` and `api` each depend on `dns` for a validated ACM
+certificate and create their own alias record in that zone.
 
 `silpo-mobile` (Expo/React Native) has no unit here — it isn't deployed to AWS. Distribution goes
 through the app stores, and builds/OTA updates through Expo's own EAS service.

@@ -33,6 +33,12 @@ variable "certificate_arn" {
   default     = null
 }
 
+variable "zone_id" {
+  description = "Route53 hosted zone ID to create an alias record in for each entry in var.aliases. Leave null to skip (e.g. before a domain exists)."
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   description = "Extra tags applied to every resource."
   type        = map(string)

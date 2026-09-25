@@ -7,6 +7,7 @@ locals {
 
   api_base_url = coalesce(
     var.api_base_url_override,
+    local.serve_https && var.domain_name != null ? "https://${var.domain_name}" : null,
     "${local.serve_https ? "https" : "http"}://${aws_lb.this.dns_name}",
   )
 
@@ -259,6 +260,20 @@ resource "aws_lb_listener" "https" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.this.arn
+  }
+}
+
+resource "aws_route53_record" "this" {
+  count = var.zone_id != null && var.domain_name != null ? 1 : 0
+
+  zone_id = var.zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.this.dns_name
+    zone_id                = aws_lb.this.zone_id
+    evaluate_target_health = true
   }
 }
 
