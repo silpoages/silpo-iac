@@ -147,42 +147,51 @@ further.
 
 - **Lint** — `tofu fmt -check`, `terragrunt hcl fmt --check`, TFLint
 - **Test** — `tofu validate` per module (no AWS credentials needed) + `tfsec` security scan
-- **Build** — `terragrunt plan --all` against real AWS, via OIDC (no long-lived AWS keys in
-  GitHub). **Skipped until configured** — set these to enable it:
-  - Repo variable `AWS_ROLE_ARN`: an IAM role GitHub Actions can assume via OIDC
-    (`token.actions.githubusercontent.com` as the trusted identity provider, scoped to this repo).
-  - Repo variable `AWS_REGION` (optional, defaults to `us-east-1`).
-
-  A skipped required check still counts as passing for branch protection, so PRs aren't blocked
-  in the meantime — `Build` just does nothing useful yet.
 - **Diagram** — renders [`docs/architecture/diagram.py`](docs/architecture/diagram.py) (Python
   [`diagrams`](https://diagrams.mingrammer.com/) library, official AWS icons) into
   `docs/architecture/architecture.png` (the image embedded above), no AWS credentials needed
   since it's hand-described, not derived from a live plan. Runs after (`needs:`) `Lint` and
   `Test` have already passed for the same commit. Not itself a required status check —
-  informational only. On `push` to `main`/`develop`, if the rendered image differs from the one
-  committed, it opens a PR with the refresh — authenticated as `DIAGRAM_BOT_TOKEN` (a
-  fine-grained PAT scoped to just this repo, belonging to a user in
-  `bypass_pull_request_allowances`) instead of the default `GITHUB_TOKEN`, since the built-in
-  token can't trigger `pull_request` workflows on a PR it opens itself (GitHub's own
-  loop-prevention) — and then immediately merges that PR itself with an admin override
-  (`gh pr merge --admin`). That's the one specific case in this repo that merges into a
-  protected branch without a human clicking approve; "gated on checks" here means the merge step
-  is only reached once `Lint`/`Test` succeeded on the original commit, not that GitHub's own
-  protections are checked again for the PR — the admin override skips those outright (a plain
-  `--auto` merge doesn't work for this: bypassing the required-review count only applies to a
-  direct push or an explicit admin-override merge, not to GitHub's passive
+  informational only. Runs (render + artifact + job summary) on every push and PR, but only
+  self-commits on `push` to **`develop`** — never `main`. `main` only ever changes through a
+  manually-reviewed `develop -> main` PR that someone merges themselves (see
+  [Branching](#branching)); letting this bot commit to `main` independently was tried and
+  reverted, since a bot-authored fix landing only on `main` is exactly how `main` and `develop`
+  end up with diverging history (it happened once while building this — see the `50ee178`/
+  `8a27250` commits in the repo history for what that looked like).
+
+  On a qualifying push to `develop`, if the rendered image differs from the one committed, it
+  opens a PR with the refresh — authenticated as `DIAGRAM_BOT_TOKEN` (a fine-grained PAT scoped
+  to just this repo, belonging to a user in `bypass_pull_request_allowances`) instead of the
+  default `GITHUB_TOKEN`, since the built-in token can't trigger `pull_request` workflows on a PR
+  it opens itself (GitHub's own loop-prevention) — and then immediately merges that PR itself
+  with an admin override (`gh pr merge --admin`). That's the one specific case in this repo that
+  merges into a protected branch without a human clicking approve; "gated on checks" here means
+  the merge step is only reached once `Lint`/`Test` succeeded on the original commit, not that
+  GitHub's own protections are checked again for the PR — the admin override skips those outright
+  (a plain `--auto` merge doesn't work for this: bypassing the required-review count only applies
+  to a direct push or an explicit admin-override merge, not to GitHub's passive
   merge-when-checks-pass queue — confirmed by hitting exactly that wall while building this).
   Update `diagram.py` itself by hand alongside any change to what's actually provisioned; the
-  image follows automatically on the next push.
+  image on `develop` follows automatically on the next push, and reaches `main` the same way
+  everything else does — via the next manual promotion.
 
   **Trade-off worth knowing:** `DIAGRAM_BOT_TOKEN` is stored as a repo secret and belongs to an
   account that can bypass PR review on `main`/`develop`. If it ever leaked, whoever has it could
   merge anything into either branch without review or waiting on checks. Scoped to just this one
   repository specifically to limit that blast radius.
 
-All of `Lint`, `Test` and `Build` (but not `Diagram` or `mirror-gitlab`) are required status
-checks on `main` and `develop`, matching `silpo-backend`'s branch protection.
+`Lint` and `Test` (but not `Diagram` or `mirror-gitlab`) are required status checks on `main` and
+`develop`.
+
+## Branching
+
+`develop` is where everything lands first — feature branches target it, and it's always the
+same as or ahead of `main`, never behind. `main` only moves forward through a manually-reviewed
+`develop -> main` PR that a person merges themselves; nothing in this repo's automation (the
+`Diagram` job included — see [CI/CD](#cicd)) pushes or self-merges into `main` directly. If
+`main` ever has commits `develop` doesn't, something bypassed that rule; reconcile by merging
+`main` back into `develop` before continuing.
 
 ## Conventions
 
