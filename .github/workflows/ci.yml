@@ -147,16 +147,19 @@ jobs:
             echo "![architecture diagram](data:image/png;base64,$(base64 -w0 docs/architecture/architecture.png))"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # main/develop require a PR (see branch protection), so this can't push there directly —
-      # it opens a PR instead, same as any other change. Only runs on push; a no-op if the
-      # rendered image already matches what's committed (nothing to open a PR for).
+      # develop requires a PR (see branch protection), so this can't push there directly — it
+      # opens a PR instead, same as any other change. Only runs on push to develop specifically
+      # (never main — main only changes via a manually-reviewed develop -> main PR, and letting
+      # this bot commit to main independently is exactly how main and develop end up with
+      # diverging history, since a bot-fix landing only on main never makes it back to develop).
+      # A no-op if the rendered image already matches what's committed.
       #
       # Uses DIAGRAM_BOT_TOKEN (a fine-grained PAT scoped to just this repo, belonging to a user
       # in main/develop's bypass_pull_request_allowances) instead of the default GITHUB_TOKEN:
       # GitHub doesn't run pull_request workflows for PRs opened by GITHUB_TOKEN (loop
       # prevention), so Lint/Test/Build would never run on this PR otherwise.
       - name: Open PR if the diagram changed
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref_name == 'develop'
         id: diagram-pr
         uses: peter-evans/create-pull-request@v6
         with:
@@ -166,11 +169,11 @@ jobs:
           title: 'chore: update architecture diagram'
           body: |
             The rendered `docs/architecture/architecture.png` no longer matched the committed
-            one, opened automatically by the `Diagram` CI job on `${{ github.ref_name }}` after
-            `Lint` and `Test` passed on that commit — this PR merges itself right after opening,
-            with an admin override, no action needed.
-          branch: bot/update-architecture-diagram-${{ github.ref_name }}
-          base: ${{ github.ref_name }}
+            one, opened automatically by the `Diagram` CI job after `Lint` and `Test` passed on
+            this commit — this PR merges itself right after opening, with an admin override, no
+            action needed.
+          branch: bot/update-architecture-diagram
+          base: develop
           delete-branch: true
 
       # Merges immediately with admin override, gated on this job's own `needs: [Lint, Test]` —
