@@ -97,7 +97,15 @@ further.
 1. **Set the real AWS account ID.** Edit `terragrunt/live/shared/env.hcl` and replace the
    placeholder `account_id`. This namespaces the Terraform state bucket
    (`silpo-terraform-state-<account_id>`) so it doesn't collide with anyone else's AWS account.
-2. **Apply.** The `--backend-bootstrap` flag has Terragrunt create the S3 state bucket
+2. **Set the real Resend API key.** Terraform can't invent a real third-party API key, so it's
+   not a committed input:
+   ```bash
+   cp terragrunt/live/shared/api/secrets.tfvars.example terragrunt/live/shared/api/secrets.tfvars
+   ```
+   Edit `secrets.tfvars` (git-ignored) and fill in the real key. Skipping this step is fine —
+   `resend_api_key` defaults to an empty string — but email sending won't work until it's set
+   and the `api` unit is re-applied.
+3. **Apply.** The `--backend-bootstrap` flag has Terragrunt create the S3 state bucket
    automatically if it doesn't exist yet (state locking uses S3's own native locking, no
    DynamoDB table needed) — no separate bootstrap step:
    ```bash
@@ -105,18 +113,6 @@ further.
    terragrunt apply --all --backend-bootstrap
    ```
    Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds` → `api`.
-3. **Set the real Resend API key.** The `api` unit provisions a Secrets Manager secret for it
-   with a `CHANGE_ME` placeholder (Terraform can't invent a real third-party API key). After the
-   first apply:
-   ```bash
-   aws secretsmanager put-secret-value \
-     --secret-id silpo-shared/resend-api-key \
-     --secret-string "<the real Resend API key>"
-   ```
-   Then force a new ECS deployment so the running task picks it up:
-   ```bash
-   aws ecs update-service --cluster silpo-shared --service silpo-shared --force-new-deployment
-   ```
 4. **Push an image.** The `ecr` unit's output (`repository_url`) is where `silpo-backend`'s CI
    should push images. The `api` unit currently deploys the `:latest` tag; wiring a real
    build-and-deploy pipeline in `silpo-backend` is a natural next step.

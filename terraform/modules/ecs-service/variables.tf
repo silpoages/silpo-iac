@@ -82,6 +82,13 @@ variable "secrets" {
   default = []
 }
 
+variable "resend_api_key" {
+  description = "Resend API key, stored in Secrets Manager as RESEND_API_KEY. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "secret_arns" {
   description = "ARNs the task execution role is allowed to read (Secrets Manager secrets / SSM parameters referenced in var.secrets)."
   type        = list(string)

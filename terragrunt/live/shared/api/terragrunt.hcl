@@ -4,6 +4,16 @@ include "root" {
 
 terraform {
   source = "../../../../terraform/modules/ecs-service"
+
+  # secrets.tfvars is git-ignored (see .gitignore's *.tfvars) and only read if it exists, so
+  # `terragrunt apply` works fine before it's created too. Copy secrets.tfvars.example to
+  # secrets.tfvars and fill in the real value.
+  extra_arguments "secrets" {
+    commands = ["plan", "apply"]
+    optional_var_files = [
+      "${get_terragrunt_dir()}/secrets.tfvars",
+    ]
+  }
 }
 
 dependency "networking" {

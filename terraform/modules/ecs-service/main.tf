@@ -87,11 +87,7 @@ resource "aws_secretsmanager_secret" "resend_api_key" {
 
 resource "aws_secretsmanager_secret_version" "resend_api_key" {
   secret_id     = aws_secretsmanager_secret.resend_api_key.id
-  secret_string = "CHANGE_ME"
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
+  secret_string = var.resend_api_key
 }
 
 locals {
