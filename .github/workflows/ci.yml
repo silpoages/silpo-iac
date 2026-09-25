@@ -155,7 +155,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DIAGRAM_BOT_TOKEN }}
         run: |
           gh pr merge ${{ steps.diagram-pr.outputs.pull-request-number }} \
-            --repo ${{ github.repository }} --admin --squash --delete-branch
+            --repo ${{ github.repository }} --admin --merge --delete-branch
 
   Cost:
     name: AWS Cost Estimate
@@ -241,7 +241,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DIAGRAM_BOT_TOKEN }}
         run: |
           gh pr merge ${{ steps.cost-pr.outputs.pull-request-number }} \
-            --repo ${{ github.repository }} --admin --squash --delete-branch
+            --repo ${{ github.repository }} --admin --merge --delete-branch
 
   mirror-gitlab:
     name: Mirror to GitLab
