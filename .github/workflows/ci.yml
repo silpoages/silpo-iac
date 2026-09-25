@@ -157,6 +157,92 @@ jobs:
           gh pr merge ${{ steps.diagram-pr.outputs.pull-request-number }} \
             --repo ${{ github.repository }} --admin --squash --delete-branch
 
+  Cost:
+    name: AWS Cost Estimate
+    runs-on: ubuntu-latest
+    needs: [Lint, Test]
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate cost estimate
+        run: infracost breakdown --config-file infracost.yml --format json --out-file /tmp/infracost.json
+
+      - name: Update README cost section
+        run: |
+          infracost output --path /tmp/infracost.json --format table > /tmp/cost-table.txt
+          python3 - <<'PYEOF'
+          import re
+
+          with open("/tmp/cost-table.txt") as f:
+              table = f.read()
+          with open("README.md") as f:
+              readme = f.read()
+
+          block = "<!-- infracost-start -->\n```text\n" + table + "```\n<!-- infracost-end -->"
+          readme = re.sub(
+              r"<!-- infracost-start -->.*?<!-- infracost-end -->",
+              lambda _: block,
+              readme,
+              flags=re.DOTALL,
+          )
+
+          with open("README.md", "w") as f:
+              f.write(readme)
+          PYEOF
+
+      - name: Upload cost report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-estimate
+          path: /tmp/infracost.json
+
+      - name: Embed in job summary
+        run: |
+          {
+            echo "### AWS cost estimate"
+            echo '```text'
+            cat /tmp/cost-table.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Same pattern as the Diagram job above (see its comments for the full rationale): only
+      # self-commits on push to develop, never main; uses DIAGRAM_BOT_TOKEN so Lint/Test actually
+      # run on the opened PR (the default GITHUB_TOKEN can't trigger pull_request workflows on a
+      # PR it opens itself), then merges immediately with an admin override once this job's own
+      # `needs: [Lint, Test]` already confirmed they passed on this commit.
+      - name: Open PR if the cost estimate changed
+        if: github.event_name == 'push' && github.ref_name == 'develop'
+        id: cost-pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.DIAGRAM_BOT_TOKEN }}
+          add-paths: README.md
+          commit-message: 'chore: update AWS cost estimate'
+          title: 'chore: update AWS cost estimate'
+          body: |
+            The Infracost breakdown no longer matched the committed README section, opened
+            automatically by the `Cost` CI job after `Lint` and `Test` passed on this commit —
+            this PR merges itself right after opening, with an admin override, no action needed.
+          branch: bot/update-cost-estimate
+          base: develop
+          delete-branch: true
+
+      - name: Merge the cost estimate PR
+        if: steps.cost-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.DIAGRAM_BOT_TOKEN }}
+        run: |
+          gh pr merge ${{ steps.cost-pr.outputs.pull-request-number }} \
+            --repo ${{ github.repository }} --admin --squash --delete-branch
+
   mirror-gitlab:
     name: Mirror to GitLab
     runs-on: ubuntu-latest
