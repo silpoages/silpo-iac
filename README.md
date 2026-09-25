@@ -108,8 +108,114 @@ project per module, using the same representative values as
 an estimate, not a bill.
 
 <!-- infracost-start -->
-Not generated yet — the `Cost` CI job needs `INFRACOST_API_KEY` configured first (see
-[CI/CD](#cicd)). Once set, the next push to `develop` fills this in.
+```text
+Project: networking
+Module path: terraform/modules/networking
+
+ Name           Monthly Qty  Unit  Monthly Cost   
+                                                  
+ Project total                            $0.00   
+
+──────────────────────────────────
+Project: ecr
+Module path: terraform/modules/ecr
+
+ Name                       Monthly Qty  Unit            Monthly Cost   
+                                                                        
+ aws_ecr_repository.this                                                
+ └─ Storage               Monthly cost depends on usage: $0.10 per GB   
+                                                                        
+ Project total                                                  $0.00   
+
+──────────────────────────────────
+Project: rds-postgres
+Module path: terraform/modules/rds-postgres
+
+ Name                                                             Monthly Qty  Unit                    Monthly Cost   
+                                                                                                                      
+ aws_db_instance.this                                                                                                 
+ ├─ Database instance (on-demand, Single-AZ, db.t4g.micro)                730  hours                         $11.68   
+ ├─ Storage (general purpose SSD, gp3)                                     20  GB                             $2.30   
+ └─ Additional backup storage                               Monthly cost depends on usage: $0.095 per GB              
+                                                                                                                      
+ aws_secretsmanager_secret.this                                                                                       
+ ├─ Secret                                                                  1  months                         $0.40   
+ └─ API requests                                            Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                                      
+ Project total                                                                                               $14.38   
+
+──────────────────────────────────
+Project: ecs-service
+Module path: terraform/modules/ecs-service
+
+ Name                                            Monthly Qty  Unit                    Monthly Cost   
+                                                                                                     
+ aws_lb.this                                                                                         
+ ├─ Application load balancer                            730  hours                         $16.43   
+ └─ Load balancer capacity units           Monthly cost depends on usage: $5.84 per LCU              
+                                                                                                     
+ aws_ecs_service.this                                                                                
+ ├─ Per GB per hour                                      0.5  GB                             $1.62   
+ └─ Per vCPU per hour                                   0.25  CPU                            $7.39   
+                                                                                                     
+ aws_secretsmanager_secret.jwt_secret                                                                
+ ├─ Secret                                                 1  months                         $0.40   
+ └─ API requests                           Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                     
+ aws_secretsmanager_secret.resend_api_key                                                            
+ ├─ Secret                                                 1  months                         $0.40   
+ └─ API requests                           Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                     
+ aws_cloudwatch_log_group.this                                                                       
+ ├─ Data ingested                          Monthly cost depends on usage: $0.50 per GB               
+ ├─ Archival Storage                       Monthly cost depends on usage: $0.03 per GB               
+ └─ Insights queries data scanned          Monthly cost depends on usage: $0.005 per GB              
+                                                                                                     
+ Project total                                                                              $26.24   
+
+──────────────────────────────────
+Project: static-site
+Module path: terraform/modules/static-site
+
+ Name                                                    Monthly Qty  Unit                    Monthly Cost   
+                                                                                                             
+ aws_cloudfront_distribution.this                                                                            
+ ├─ Invalidation requests (first 1k)               Monthly cost depends on usage: $0.00 per paths            
+ └─ US, Mexico, Canada                                                                                       
+    ├─ Data transfer out to internet (first 10TB)  Monthly cost depends on usage: $0.085 per GB              
+    ├─ Data transfer out to origin                 Monthly cost depends on usage: $0.02 per GB               
+    ├─ HTTP requests                               Monthly cost depends on usage: $0.0075 per 10k requests   
+    └─ HTTPS requests                              Monthly cost depends on usage: $0.01 per 10k requests     
+                                                                                                             
+ aws_s3_bucket.this                                                                                          
+ └─ Standard                                                                                                 
+    ├─ Storage                                     Monthly cost depends on usage: $0.023 per GB              
+    ├─ PUT, COPY, POST, LIST requests              Monthly cost depends on usage: $0.005 per 1k requests     
+    ├─ GET, SELECT, and all other requests         Monthly cost depends on usage: $0.0004 per 1k requests    
+    ├─ Select data scanned                         Monthly cost depends on usage: $0.002 per GB              
+    └─ Select data returned                        Monthly cost depends on usage: $0.0007 per GB             
+                                                                                                             
+ Project total                                                                                       $0.00   
+
+ OVERALL TOTAL                                                                                     $40.62 
+
+*Usage costs can be estimated by updating Infracost Cloud settings, see docs for other options.
+
+──────────────────────────────────
+46 cloud resources were detected:
+∙ 10 were estimated
+∙ 36 were free
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Project                                            ┃ Baseline cost ┃ Usage cost* ┃ Total cost ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╋━━━━━━━━━━━━━━━╋━━━━━━━━━━━━━╋━━━━━━━━━━━━┫
+┃ networking                                         ┃         $0.00 ┃           - ┃      $0.00 ┃
+┃ ecr                                                ┃         $0.00 ┃           - ┃      $0.00 ┃
+┃ rds-postgres                                       ┃           $14 ┃           - ┃        $14 ┃
+┃ ecs-service                                        ┃           $26 ┃           - ┃        $26 ┃
+┃ static-site                                        ┃         $0.00 ┃           - ┃      $0.00 ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━┻━━━━━━━━━━━━┛
+```
 <!-- infracost-end -->
 
 ## Prerequisites
