@@ -109,6 +109,40 @@ jobs:
         working-directory: terragrunt/live/shared
         run: terragrunt plan --all --non-interactive --backend-bootstrap
 
+  Diagram:
+    name: Architecture Diagram
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Graphviz
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
+
+      - name: Install diagrams
+        run: pip install -r docs/architecture/requirements.txt
+
+      - name: Generate diagram
+        working-directory: docs/architecture
+        run: python diagram.py
+
+      - name: Upload diagram artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-diagram
+          path: docs/architecture/architecture.png
+
+      - name: Embed in job summary
+        run: |
+          {
+            echo "### Architecture diagram"
+            echo "![architecture diagram](data:image/png;base64,$(base64 -w0 docs/architecture/architecture.png))"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   mirror-gitlab:
     name: Mirror to GitLab
     runs-on: ubuntu-latest

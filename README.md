@@ -148,9 +148,15 @@ further.
 
   A skipped required check still counts as passing for branch protection, so PRs aren't blocked
   in the meantime — `Build` just does nothing useful yet.
+- **Diagram** — renders [`docs/architecture/diagram.py`](docs/architecture/diagram.py) (Python
+  [`diagrams`](https://diagrams.mingrammer.com/) library, official AWS icons) into
+  `architecture.png`, no AWS credentials needed since it's hand-described, not derived from a
+  live plan. View it in the job's summary tab, or download it from the job's artifacts. Not a
+  required status check — informational only. Update the script by hand alongside any change to
+  what's actually provisioned.
 
-All three (`Lint`, `Test`, `Build`) are required status checks on `main` and `develop`, matching
-`silpo-backend`'s branch protection.
+All of `Lint`, `Test` and `Build` (but not `Diagram` or `mirror-gitlab`) are required status
+checks on `main` and `develop`, matching `silpo-backend`'s branch protection.
 
 ## Conventions
 
