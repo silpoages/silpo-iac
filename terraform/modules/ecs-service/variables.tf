@@ -66,7 +66,7 @@ variable "desired_count" {
 
 variable "environment_variables" {
   description = "Plain (non-secret) environment variables passed to the container."
-  type        = list(object({
+  type = list(object({
     name  = string
     value = string
   }))
@@ -75,7 +75,7 @@ variable "environment_variables" {
 
 variable "secrets" {
   description = "Environment variables sourced from Secrets Manager or SSM Parameter Store."
-  type        = list(object({
+  type = list(object({
     name       = string
     value_from = string
   }))

@@ -1,7 +1,8 @@
 # silpo-iac
 
-Infrastructure as Code for the Silpo project on AWS, using **Terraform** (reusable modules) +
-**Terragrunt** (environment wiring, remote state, DRY provider config).
+Infrastructure as Code for the Silpo project on AWS, using **OpenTofu** (reusable modules,
+Terraform-compatible HCL) + **Terragrunt** (environment wiring, remote state, DRY provider
+config — Terragrunt 1.x runs OpenTofu by default).
 
 > Traffic assumption driving every default here: at most 3-4 concurrent users, and close to zero
 > traffic for ~99% of the day. Every choice below optimizes for that — see
@@ -11,13 +12,13 @@ Infrastructure as Code for the Silpo project on AWS, using **Terraform** (reusab
 
 | Layer               | Technology                                      |
 | ------------------- | ------------------------------------------------ |
-| IaC                 | Terraform + Terragrunt                          |
+| IaC                 | OpenTofu + Terragrunt                            |
 | Cloud               | AWS                                              |
 | Compute             | ECS Fargate (single task) + Application Load Balancer |
 | Database            | RDS PostgreSQL (single-AZ, `db.t4g.micro`)       |
 | Container registry  | ECR                                              |
 | Secrets             | AWS Secrets Manager                              |
-| Linting             | `terraform fmt`, `terragrunt hclfmt`, TFLint     |
+| Linting             | `tofu fmt`, `terragrunt hcl fmt`, TFLint         |
 | Security scanning   | tfsec                                            |
 | Pre-commit hooks    | [pre-commit](https://pre-commit.com) + pre-commit-terraform |
 | CI                  | GitHub Actions                                   |
@@ -32,7 +33,7 @@ terraform/
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
     ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/Resend)
 terragrunt/
-  terragrunt.hcl    # Root config: S3 remote state + DynamoDB locking + AWS provider generation
+  terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
     shared/         # The one environment this project runs (see "Environments" below)
       env.hcl       # account_id / aws_region / environment name
@@ -84,8 +85,10 @@ further.
 
 ## Prerequisites
 
-- [Terraform](https://developer.hashicorp.com/terraform/install) `>= 1.7`
-- [Terragrunt](https://terragrunt.gruntwork.io/docs/getting-started/install/) `>= 0.68`
+- [OpenTofu](https://opentofu.org/docs/intro/install/) `>= 1.7` (Terragrunt invokes `tofu` by
+  default; a Terraform CLI install works too, but then pass `--tf-path terraform` to every
+  Terragrunt command)
+- [Terragrunt](https://terragrunt.gruntwork.io/docs/getting-started/install/) `>= 1.0`
 - [TFLint](https://github.com/terraform-linters/tflint) (optional locally, runs in CI)
 - AWS credentials with permission to create the resources in `terraform/modules/*`
 
@@ -94,11 +97,12 @@ further.
 1. **Set the real AWS account ID.** Edit `terragrunt/live/shared/env.hcl` and replace the
    placeholder `account_id`. This namespaces the Terraform state bucket
    (`silpo-terraform-state-<account_id>`) so it doesn't collide with anyone else's AWS account.
-2. **Apply.** Terragrunt creates the S3 state bucket and DynamoDB lock table automatically on
-   first use — no separate bootstrap step:
+2. **Apply.** The `--backend-bootstrap` flag has Terragrunt create the S3 state bucket
+   automatically if it doesn't exist yet (state locking uses S3's own native locking, no
+   DynamoDB table needed) — no separate bootstrap step:
    ```bash
    cd terragrunt/live/shared
-   terragrunt run-all apply
+   terragrunt apply --all --backend-bootstrap
    ```
    Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds` → `api`.
 3. **Set the real Resend API key.** The `api` unit provisions a Secrets Manager secret for it
@@ -121,9 +125,9 @@ further.
 
 `.github/workflows/ci.yml` runs on every push and pull request:
 
-- **Lint** — `terraform fmt -check`, `terragrunt hclfmt --check`, TFLint
-- **Test** — `terraform validate` per module (no AWS credentials needed) + `tfsec` security scan
-- **Build** — `terragrunt run-all plan` against real AWS, via OIDC (no long-lived AWS keys in
+- **Lint** — `tofu fmt -check`, `terragrunt hcl fmt --check`, TFLint
+- **Test** — `tofu validate` per module (no AWS credentials needed) + `tfsec` security scan
+- **Build** — `terragrunt plan --all` against real AWS, via OIDC (no long-lived AWS keys in
   GitHub). **Skipped until configured** — set these to enable it:
   - Repo variable `AWS_ROLE_ARN`: an IAM role GitHub Actions can assume via OIDC
     (`token.actions.githubusercontent.com` as the trusted identity provider, scoped to this repo).

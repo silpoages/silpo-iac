@@ -20,15 +20,12 @@ remote_state {
     region  = local.aws_region
     encrypt = true
 
-    dynamodb_table = "silpo-terraform-locks"
+    # Native S3 locking (via conditional writes) — no DynamoDB table needed.
+    use_lockfile = true
 
-    # Terragrunt creates the bucket/table below on first `terragrunt apply` if they don't
-    # exist yet, so no separate bootstrap step is needed.
+    # Terragrunt creates the bucket above on first `terragrunt apply --backend-bootstrap` if
+    # it doesn't exist yet. See the root README's bootstrap steps.
     s3_bucket_tags = {
-      Project   = "silpo"
-      ManagedBy = "terragrunt"
-    }
-    dynamodb_table_tags = {
       Project   = "silpo"
       ManagedBy = "terragrunt"
     }
