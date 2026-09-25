@@ -97,6 +97,12 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   not another ~US$20-30 of always-on compute. `PriceClass_100` (North America + Europe edge
   locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
 
+**`silpoages.com` isn't free**, and isn't in the cost estimate below since neither cost is a
+Terraform resource: registering the domain is a real annual registrar fee (~US$13+/year for
+`.com` via Route53), and the hosted zone it creates costs ~US$0.50/month on top of that. The `dns`
+module's own resources (ACM certs, alias records) are free — see `infracost.yml`'s comment on why
+it's excluded.
+
 For the actual resource-by-resource number, on-demand pricing, excluding AWS free tier — see
 [Cost estimate](#cost-estimate) below, generated from this repo's own code rather than typed by
 hand.

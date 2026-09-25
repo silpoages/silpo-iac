@@ -58,7 +58,10 @@ projects:
       name: silpo-web-000000000000
       spa_fallback: true
 
-  # dns is intentionally left out: its only resources are ACM certs + Route53 records, both free,
-  # and it looks up its hosted zone with a `data` source that needs real AWS credentials to
-  # resolve — static analysis can't plan it. The zone itself is billed by domain registration
-  # (outside this repo), not by anything this module creates.
+  # dns is intentionally left out: it looks up its hosted zone with a `data` source that needs
+  # real AWS credentials to resolve, so static analysis can't plan it. The *resources this module
+  # creates* (ACM certs, Route53 alias records) are free, but that's not the full domain cost —
+  # registering silpoages.com is a real annual registrar fee (~US$13+/year for .com via Route53),
+  # and the hosted zone itself is ~US$0.50/month. Neither is created by this module (the zone is
+  # created automatically by domain registration, which happens outside Terraform), so neither
+  # shows up here, but budget for both.
