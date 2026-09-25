@@ -10,7 +10,7 @@ from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.compute import ECR, ECS
 from diagrams.aws.database import RDSPostgresqlInstance
 from diagrams.aws.general import Users
-from diagrams.aws.network import ELB, CloudFront
+from diagrams.aws.network import ELB, CloudFront, Route53
 from diagrams.aws.security import SecretsManager
 from diagrams.aws.storage import S3
 
@@ -62,6 +62,10 @@ with Diagram(
         cdn = CloudFront("CloudFront")
         web = S3("S3 bucket")
         cdn >> web
+
+    dns = Route53("Route53\nsilpoages.com")
+    dns >> Edge(label="alias", style="dashed") >> alb
+    dns >> Edge(label="alias", style="dashed") >> cdn
 
     users >> Edge(label="HTTPS") >> alb
     users >> Edge(label="HTTPS") >> cdn

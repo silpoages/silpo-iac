@@ -44,6 +44,16 @@ dependency "rds" {
   }
 }
 
+dependency "dns" {
+  config_path = "../dns"
+
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs = {
+    zone_id             = "Z00000000000000000"
+    api_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+  }
+}
+
 locals {
   env_vars = read_terragrunt_config(find_in_parent_folders("env.hcl"))
 }
@@ -87,4 +97,8 @@ inputs = {
   ]
 
   secret_arns = [dependency.rds.outputs.secret_arn]
+
+  domain_name     = "api.silpoages.com"
+  certificate_arn = dependency.dns.outputs.api_certificate_arn
+  zone_id         = dependency.dns.outputs.zone_id
 }

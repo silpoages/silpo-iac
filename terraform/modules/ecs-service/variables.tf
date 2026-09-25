@@ -101,8 +101,20 @@ variable "certificate_arn" {
   default     = null
 }
 
+variable "zone_id" {
+  description = "Route53 hosted zone ID to create an alias record for domain_name in. Leave null to skip."
+  type        = string
+  default     = null
+}
+
+variable "domain_name" {
+  description = "Domain name to point at the ALB (e.g. \"api.silpoages.com\"), used with zone_id and as the default API_BASE_URL host when certificate_arn is set."
+  type        = string
+  default     = null
+}
+
 variable "api_base_url_override" {
-  description = "Explicit API_BASE_URL env var value (e.g. https://api.silpo.app once a domain exists). Defaults to the ALB's own DNS name, over HTTPS if certificate_arn is set."
+  description = "Explicit API_BASE_URL env var value. Defaults to https://<domain_name> once domain_name and certificate_arn are set, otherwise the ALB's own DNS name (HTTP)."
   type        = string
   default     = null
 }

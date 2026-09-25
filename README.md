@@ -25,6 +25,7 @@ the CI `Diagram` job (see [CI/CD](#cicd)), not by hand.
 | Web hosting         | S3 + CloudFront (static SPA, `silpo-web`)        |
 | Database            | RDS PostgreSQL (single-AZ, `db.t4g.micro`)       |
 | Container registry  | ECR                                              |
+| DNS / TLS           | Route53 + ACM (`silpoages.com`)                  |
 | Secrets             | AWS Secrets Manager                              |
 | Linting             | `tofu fmt`, `terragrunt hcl fmt`, TFLint         |
 | Security scanning   | tfsec                                            |
@@ -41,6 +42,7 @@ terraform/
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
     ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/Resend)
     static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
+    dns/            # ACM certs (web + api) DNS-validated against the silpoages.com hosted zone
 terragrunt/
   terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
@@ -49,9 +51,16 @@ terragrunt/
       networking/
       ecr/
       rds/
+      dns/
       api/
       web/
 ```
+
+`dns` looks up an existing Route53 hosted zone for `silpoages.com` (a `data` source, not a resource) —
+it doesn't register the domain itself. Registering it (through Route53 or elsewhere) is a real
+purchase, so it's a manual, one-time step outside Terraform; Route53 creates the hosted zone
+automatically once that's done. `web` and `api` each depend on `dns` for a validated ACM
+certificate and create their own alias record in that zone.
 
 `silpo-mobile` (Expo/React Native) has no unit here — it isn't deployed to AWS. Distribution goes
 through the app stores, and builds/OTA updates through Expo's own EAS service.
@@ -87,6 +96,12 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   hosting bills per request/GB served, not per second of uptime — at this traffic it's cents/month,
   not another ~US$20-30 of always-on compute. `PriceClass_100` (North America + Europe edge
   locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
+
+**`silpoages.com` isn't free**, and isn't in the cost estimate below since neither cost is a
+Terraform resource: registering the domain is a real annual registrar fee (~US$13+/year for
+`.com` via Route53), and the hosted zone it creates costs ~US$0.50/month on top of that. The `dns`
+module's own resources (ACM certs, alias records) are free — see `infracost.yml`'s comment on why
+it's excluded.
 
 For the actual resource-by-resource number, on-demand pricing, excluding AWS free tier — see
 [Cost estimate](#cost-estimate) below, generated from this repo's own code rather than typed by
