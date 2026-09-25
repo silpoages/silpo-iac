@@ -147,14 +147,6 @@ further.
 
 - **Lint** — `tofu fmt -check`, `terragrunt hcl fmt --check`, TFLint
 - **Test** — `tofu validate` per module (no AWS credentials needed) + `tfsec` security scan
-- **Build** — `terragrunt plan --all` against real AWS, via OIDC (no long-lived AWS keys in
-  GitHub). **Skipped until configured** — set these to enable it:
-  - Repo variable `AWS_ROLE_ARN`: an IAM role GitHub Actions can assume via OIDC
-    (`token.actions.githubusercontent.com` as the trusted identity provider, scoped to this repo).
-  - Repo variable `AWS_REGION` (optional, defaults to `us-east-1`).
-
-  A skipped required check still counts as passing for branch protection, so PRs aren't blocked
-  in the meantime — `Build` just does nothing useful yet.
 - **Diagram** — renders [`docs/architecture/diagram.py`](docs/architecture/diagram.py) (Python
   [`diagrams`](https://diagrams.mingrammer.com/) library, official AWS icons) into
   `docs/architecture/architecture.png` (the image embedded above), no AWS credentials needed
@@ -189,8 +181,8 @@ further.
   merge anything into either branch without review or waiting on checks. Scoped to just this one
   repository specifically to limit that blast radius.
 
-All of `Lint`, `Test` and `Build` (but not `Diagram` or `mirror-gitlab`) are required status
-checks on `main` and `develop`, matching `silpo-backend`'s branch protection.
+`Lint` and `Test` (but not `Diagram` or `mirror-gitlab`) are required status checks on `main` and
+`develop`.
 
 ## Branching
 
