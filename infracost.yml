@@ -2,14 +2,24 @@
 # credentials) with the same representative values used in terragrunt/live/shared/*/terragrunt.hcl
 # (including the same mock dependency outputs used there for validate/plan) — keep these two in
 # sync by hand if either changes. See README.md#cost-estimate.
+#
+# The one value that ISN'T hand-typed here is the AWS region used for pricing: none of these
+# modules declare their own provider block (Terragrunt generates it per-environment, from
+# env.hcl's aws_region), so without one Infracost would silently price everything as us-east-1
+# regardless of where it's actually deployed. Each project's `env.AWS_REGION` below resolves that
+# the same way the real aws provider does — from the AWS_REGION environment variable — and the
+# Cost CI job sets that env var by reading env.hcl directly (see .github/workflows/ci.yml), so the
+# region itself still only lives in one place.
 version: 0.1
 
 projects:
   - path: terraform/modules/networking
     name: networking
+    env:
+      AWS_REGION: ${AWS_REGION}
     terraform_vars:
       name: silpo-shared
-      azs: ["us-east-1a", "us-east-1b"]
+      azs: ["sa-east-1a", "sa-east-1b"]
       vpc_cidr: "10.0.0.0/16"
       public_subnet_cidrs: ["10.0.0.0/24", "10.0.1.0/24"]
       private_subnet_cidrs: ["10.0.10.0/24", "10.0.11.0/24"]
@@ -17,6 +27,8 @@ projects:
 
   - path: terraform/modules/ecr
     name: ecr
+    env:
+      AWS_REGION: ${AWS_REGION}
     terraform_vars:
       name: silpo-backend
       image_tag_mutability: "IMMUTABLE"
@@ -25,6 +37,8 @@ projects:
 
   - path: terraform/modules/rds-postgres
     name: rds-postgres
+    env:
+      AWS_REGION: ${AWS_REGION}
     terraform_vars:
       name: silpo-shared
       vpc_id: vpc-00000000000000000
@@ -40,13 +54,15 @@ projects:
 
   - path: terraform/modules/ecs-service
     name: ecs-service
+    env:
+      AWS_REGION: ${AWS_REGION}
     terraform_vars:
       name: silpo-shared
       vpc_id: vpc-00000000000000000
       public_subnet_ids: ["subnet-00000000000000001", "subnet-00000000000000002"]
       task_subnet_ids: ["subnet-00000000000000001", "subnet-00000000000000002"]
       assign_public_ip: true
-      image: "000000000000.dkr.ecr.us-east-1.amazonaws.com/silpo-backend:latest"
+      image: "000000000000.dkr.ecr.sa-east-1.amazonaws.com/silpo-backend:latest"
       container_port: 8000
       cpu: 256
       memory: 512
@@ -54,6 +70,8 @@ projects:
 
   - path: terraform/modules/static-site
     name: static-site
+    env:
+      AWS_REGION: ${AWS_REGION}
     terraform_vars:
       name: silpo-web-000000000000
       spa_fallback: true
