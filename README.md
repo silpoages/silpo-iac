@@ -158,22 +158,28 @@ further.
 - **Diagram** — renders [`docs/architecture/diagram.py`](docs/architecture/diagram.py) (Python
   [`diagrams`](https://diagrams.mingrammer.com/) library, official AWS icons) into
   `docs/architecture/architecture.png` (the image embedded above), no AWS credentials needed
-  since it's hand-described, not derived from a live plan. Not a required status check —
+  since it's hand-described, not derived from a live plan. Runs after (`needs:`) `Lint` and
+  `Test` have already passed for the same commit. Not itself a required status check —
   informational only. On `push` to `main`/`develop`, if the rendered image differs from the one
-  committed, it opens a PR with the refresh, authenticated as `DIAGRAM_BOT_TOKEN` (a fine-grained
-  PAT scoped to just this repo, belonging to a user in `bypass_pull_request_allowances`) instead
-  of the default `GITHUB_TOKEN` — the built-in token can't trigger `Lint`/`Test`/`Build` on a PR
-  it opens itself (GitHub's own loop-prevention), so those checks would never run on it
-  otherwise. The PR is set to auto-merge (squash) the moment those checks pass — that user is
-  exempted from the required-review count, but not from the checks themselves, so this is the
-  one specific case in this repo that merges into a protected branch without a human clicking
-  approve. Update `diagram.py` itself by hand alongside any change to what's actually
-  provisioned; the image follows automatically on the next push.
+  committed, it opens a PR with the refresh — authenticated as `DIAGRAM_BOT_TOKEN` (a
+  fine-grained PAT scoped to just this repo, belonging to a user in
+  `bypass_pull_request_allowances`) instead of the default `GITHUB_TOKEN`, since the built-in
+  token can't trigger `pull_request` workflows on a PR it opens itself (GitHub's own
+  loop-prevention) — and then immediately merges that PR itself with an admin override
+  (`gh pr merge --admin`). That's the one specific case in this repo that merges into a
+  protected branch without a human clicking approve; "gated on checks" here means the merge step
+  is only reached once `Lint`/`Test` succeeded on the original commit, not that GitHub's own
+  protections are checked again for the PR — the admin override skips those outright (a plain
+  `--auto` merge doesn't work for this: bypassing the required-review count only applies to a
+  direct push or an explicit admin-override merge, not to GitHub's passive
+  merge-when-checks-pass queue — confirmed by hitting exactly that wall while building this).
+  Update `diagram.py` itself by hand alongside any change to what's actually provisioned; the
+  image follows automatically on the next push.
 
   **Trade-off worth knowing:** `DIAGRAM_BOT_TOKEN` is stored as a repo secret and belongs to an
   account that can bypass PR review on `main`/`develop`. If it ever leaked, whoever has it could
-  merge anything into either branch without review (though `Lint`/`Test`/`Build` would still have
-  to pass). Scoped to just this one repository specifically to limit that blast radius.
+  merge anything into either branch without review or waiting on checks. Scoped to just this one
+  repository specifically to limit that blast radius.
 
 All of `Lint`, `Test` and `Build` (but not `Diagram` or `mirror-gitlab`) are required status
 checks on `main` and `develop`, matching `silpo-backend`'s branch protection.
