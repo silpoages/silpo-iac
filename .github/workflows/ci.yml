@@ -112,6 +112,9 @@ jobs:
   Diagram:
     name: Architecture Diagram
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -142,6 +145,28 @@ jobs:
             echo "### Architecture diagram"
             echo "![architecture diagram](data:image/png;base64,$(base64 -w0 docs/architecture/architecture.png))"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # main/develop require a PR (see branch protection), so this can't push there directly —
+      # it opens a PR instead, same as any other change. Only runs on push; a no-op if the
+      # rendered image already matches what's committed (nothing to open a PR for).
+      - name: Open PR if the diagram changed
+        if: github.event_name == 'push'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          add-paths: docs/architecture/architecture.png
+          commit-message: 'chore: update architecture diagram'
+          title: 'chore: update architecture diagram'
+          body: |
+            The rendered `docs/architecture/architecture.png` no longer matched the committed
+            one, opened automatically by the `Diagram` CI job on `${{ github.ref_name }}`.
+
+            Note: GitHub doesn't run `pull_request` workflows for PRs opened by the default
+            `GITHUB_TOKEN`, so `Lint`/`Test`/`Build` won't show up here on their own — push an
+            empty commit (or use the "re-run" button once any check appears) to get them to run
+            before merging.
+          branch: bot/update-architecture-diagram-${{ github.ref_name }}
+          base: ${{ github.ref_name }}
+          delete-branch: true
 
   mirror-gitlab:
     name: Mirror to GitLab
