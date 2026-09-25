@@ -18,7 +18,7 @@ graph_attr = {
 }
 
 with Diagram(
-    "Silpo - AWS Deployment",
+    "Silpo - AWS Deployment (us-east-1)",
     filename="architecture",
     outformat="png",
     show=False,
