@@ -168,34 +168,42 @@ Module path: terraform/modules/rds-postgres
 Project: ecs-service
 Module path: terraform/modules/ecs-service
 
- Name                                           Monthly Qty  Unit                    Monthly Cost   
-                                                                                                    
- aws_lb.this                                                                                        
- ├─ Application load balancer                           730  hours                         $16.43   
- └─ Load balancer capacity units          Monthly cost depends on usage: $5.84 per LCU              
-                                                                                                    
- aws_ecs_service.this                                                                               
- ├─ Per GB per hour                                     0.5  GB                             $1.62   
- └─ Per vCPU per hour                                  0.25  CPU                            $7.39   
-                                                                                                    
- aws_secretsmanager_secret.jwt_secret                                                               
- ├─ Secret                                                1  months                         $0.40   
- └─ API requests                          Monthly cost depends on usage: $0.05 per 10k requests     
-                                                                                                    
- aws_secretsmanager_secret.smtp_password                                                            
- ├─ Secret                                                1  months                         $0.40   
- └─ API requests                          Monthly cost depends on usage: $0.05 per 10k requests     
-                                                                                                    
- aws_secretsmanager_secret.smtp_username                                                            
- ├─ Secret                                                1  months                         $0.40   
- └─ API requests                          Monthly cost depends on usage: $0.05 per 10k requests     
-                                                                                                    
- aws_cloudwatch_log_group.this                                                                      
- ├─ Data ingested                         Monthly cost depends on usage: $0.50 per GB               
- ├─ Archival Storage                      Monthly cost depends on usage: $0.03 per GB               
- └─ Insights queries data scanned         Monthly cost depends on usage: $0.005 per GB              
-                                                                                                    
- Project total                                                                             $26.64   
+ Name                                                    Monthly Qty  Unit                    Monthly Cost   
+                                                                                                             
+ aws_lb.this                                                                                                 
+ ├─ Application load balancer                                    730  hours                         $16.43   
+ └─ Load balancer capacity units                   Monthly cost depends on usage: $5.84 per LCU              
+                                                                                                             
+ aws_ecs_service.this                                                                                        
+ ├─ Per GB per hour                                              0.5  GB                             $1.62   
+ └─ Per vCPU per hour                                           0.25  CPU                            $7.39   
+                                                                                                             
+ aws_secretsmanager_secret.jwt_secret                                                                        
+ ├─ Secret                                                         1  months                         $0.40   
+ └─ API requests                                   Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                             
+ aws_secretsmanager_secret.smtp_password                                                                     
+ ├─ Secret                                                         1  months                         $0.40   
+ └─ API requests                                   Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                             
+ aws_secretsmanager_secret.smtp_username                                                                     
+ ├─ Secret                                                         1  months                         $0.40   
+ └─ API requests                                   Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                             
+ aws_cloudfront_distribution.api[0]                                                                          
+ ├─ Invalidation requests (first 1k)               Monthly cost depends on usage: $0.00 per paths            
+ └─ US, Mexico, Canada                                                                                       
+    ├─ Data transfer out to internet (first 10TB)  Monthly cost depends on usage: $0.085 per GB              
+    ├─ Data transfer out to origin                 Monthly cost depends on usage: $0.02 per GB               
+    ├─ HTTP requests                               Monthly cost depends on usage: $0.0075 per 10k requests   
+    └─ HTTPS requests                              Monthly cost depends on usage: $0.01 per 10k requests     
+                                                                                                             
+ aws_cloudwatch_log_group.this                                                                               
+ ├─ Data ingested                                  Monthly cost depends on usage: $0.50 per GB               
+ ├─ Archival Storage                               Monthly cost depends on usage: $0.03 per GB               
+ └─ Insights queries data scanned                  Monthly cost depends on usage: $0.005 per GB              
+                                                                                                             
+ Project total                                                                                      $26.64   
 
 ──────────────────────────────────
 Project: static-site
@@ -226,8 +234,8 @@ Module path: terraform/modules/static-site
 *Usage costs can be estimated by updating Infracost Cloud settings, see docs for other options.
 
 ──────────────────────────────────
-48 cloud resources were detected:
-∙ 11 were estimated
+49 cloud resources were detected:
+∙ 12 were estimated
 ∙ 37 were free
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
