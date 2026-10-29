@@ -116,8 +116,12 @@ inputs = {
 
   secret_arns = [dependency.rds.outputs.secret_arn]
 
-  # No domain yet — the ALB serves plain HTTP on its own *.elb.amazonaws.com name
-  # (domain_name/certificate_arn/zone_id left at their null defaults).
+  # No domain yet (domain_name/certificate_arn/zone_id left at their null defaults), so front
+  # the ALB with CloudFront instead: its own default *.cloudfront.net domain gets a real,
+  # browser-trusted HTTPS certificate for free. Without this, silpo-web (HTTPS on its own
+  # CloudFront domain) couldn't call this API at all — browsers block HTTPS pages from making
+  # "mixed content" requests to a plain-HTTP endpoint.
+  enable_cloudfront = true
 
   # Lets silpo-backend's own CI assume a deploy role via OIDC (no long-lived AWS keys in
   # GitHub secrets) to push a new image and force this service to redeploy it.

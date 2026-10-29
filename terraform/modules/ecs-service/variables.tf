@@ -121,9 +121,21 @@ variable "domain_name" {
 }
 
 variable "api_base_url_override" {
-  description = "Explicit API_BASE_URL env var value. Defaults to https://<domain_name> once domain_name and certificate_arn are set, otherwise the ALB's own DNS name (HTTP)."
+  description = "Explicit API_BASE_URL env var value. Defaults to https://<domain_name> once domain_name and certificate_arn are set, then to the CloudFront domain if enable_cloudfront is true, otherwise the ALB's own DNS name (HTTP)."
   type        = string
   default     = null
+}
+
+variable "enable_cloudfront" {
+  description = "Front the ALB with a CloudFront distribution, so the API gets a real HTTPS endpoint (CloudFront's own default *.cloudfront.net certificate) with no domain or ACM cert needed. Use this when there's no custom domain_name/certificate_arn yet — without HTTPS somewhere, an HTTPS frontend (e.g. silpo-web on CloudFront) can't call this API at all (browsers block that 'mixed content' combination). Ignored once domain_name/certificate_arn are set."
+  type        = bool
+  default     = false
+}
+
+variable "cloudfront_price_class" {
+  description = "CloudFront price class for the enable_cloudfront distribution."
+  type        = string
+  default     = "PriceClass_100"
 }
 
 variable "log_retention_days" {

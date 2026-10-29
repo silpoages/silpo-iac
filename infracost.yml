@@ -67,6 +67,7 @@ projects:
       cpu: 256
       memory: 512
       desired_count: 1
+      enable_cloudfront: true
 
   - path: terraform/modules/static-site
     name: static-site

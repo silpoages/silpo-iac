@@ -33,6 +33,11 @@ output "task_role_arn" {
   value       = aws_iam_role.task.arn
 }
 
+output "cloudfront_domain_name" {
+  description = "CloudFront's own default *.cloudfront.net domain fronting the ALB with HTTPS. Null unless enable_cloudfront is true (and no real domain_name/certificate_arn is set)."
+  value       = local.create_cloudfront ? aws_cloudfront_distribution.api[0].domain_name : null
+}
+
 output "deploy_role_arn" {
   description = "ARN of the IAM role the GitHub repo's CI assumes via OIDC to deploy. Null if github_oidc_provider_arn wasn't set."
   value       = local.create_deploy_role ? aws_iam_role.deploy[0].arn : null

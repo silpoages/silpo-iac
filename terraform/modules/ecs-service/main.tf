@@ -7,9 +7,15 @@ locals {
 
   serve_https = var.certificate_arn != null
 
+  # Only front the ALB with CloudFront when there's no real domain/ACM cert for it yet —
+  # once a domain is wired up, the ALB already serves HTTPS directly and this would just be
+  # an extra, redundant hop.
+  create_cloudfront = var.enable_cloudfront && !local.serve_https
+
   api_base_url = coalesce(
     var.api_base_url_override,
     local.serve_https && var.domain_name != null ? "https://${var.domain_name}" : null,
+    local.create_cloudfront ? "https://${aws_cloudfront_distribution.api[0].domain_name}" : null,
     "${local.serve_https ? "https" : "http"}://${aws_lb.this.dns_name}",
   )
 
@@ -290,6 +296,56 @@ resource "aws_route53_record" "this" {
     zone_id                = aws_lb.this.zone_id
     evaluate_target_health = true
   }
+}
+
+# tfsec:ignore:aws-cloudfront-enable-waf -- extra cost not needed for a low-traffic API
+# tfsec:ignore:aws-cloudfront-enable-logging -- extra cost not needed for a low-traffic API
+resource "aws_cloudfront_distribution" "api" {
+  count = local.create_cloudfront ? 1 : 0
+
+  enabled     = true
+  price_class = var.cloudfront_price_class
+  comment     = "${var.name}-api"
+
+  origin {
+    domain_name = aws_lb.this.dns_name
+    origin_id   = aws_lb.this.id
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only" # the ALB itself has no cert to talk HTTPS with
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  default_cache_behavior {
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = aws_lb.this.id
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = true
+    # AWS managed policies: cache nothing (every response is dynamic/per-user) and pass
+    # through every header, query string and cookie the API might care about (e.g.
+    # Authorization), except Host — CloudFront still needs to send the ALB's own Host so it
+    # resolves to the right target group.
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  # No custom domain to attach an ACM cert to — CloudFront's own default certificate for its
+  # *.cloudfront.net domain is enough to get a real, browser-trusted HTTPS endpoint.
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  tags = local.tags
 }
 
 resource "aws_ecs_task_definition" "this" {
