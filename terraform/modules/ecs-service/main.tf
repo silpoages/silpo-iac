@@ -430,9 +430,16 @@ data "aws_iam_policy_document" "github_actions_assume" {
     }
 
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}"]
+      # GitHub can present either the classic "repo:org/repo:ref:..." subject or, once an org
+      # enables immutable IDs in OIDC subject claims (org/repo renames can't be replayed
+      # against old trust policies), "repo:org@<org id>/repo@<repo id>:ref:...". Accept both so
+      # this doesn't silently break if that setting flips either way.
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}",
+        "repo:${split("/", var.github_repo)[0]}@*/${split("/", var.github_repo)[1]}@*:ref:refs/heads/${var.github_deploy_branch}",
+      ]
     }
   }
 }
