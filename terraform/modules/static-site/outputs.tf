@@ -22,3 +22,8 @@ output "distribution_domain_name" {
   description = "Default *.cloudfront.net domain the site is served from."
   value       = aws_cloudfront_distribution.this.domain_name
 }
+
+output "deploy_role_arn" {
+  description = "ARN of the IAM role the GitHub repo's CI assumes via OIDC to deploy. Null if github_oidc_provider_arn wasn't set."
+  value       = local.create_deploy_role ? aws_iam_role.deploy[0].arn : null
+}

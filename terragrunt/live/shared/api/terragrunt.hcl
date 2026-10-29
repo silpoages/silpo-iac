@@ -32,6 +32,16 @@ dependency "ecr" {
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
     repository_url = "000000000000.dkr.ecr.sa-east-1.amazonaws.com/silpo-backend"
+    repository_arn = "arn:aws:ecr:sa-east-1:000000000000:repository/silpo-backend"
+  }
+}
+
+dependency "github_oidc" {
+  config_path = "../github-oidc"
+
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs = {
+    arn = "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com"
   }
 }
 
@@ -44,15 +54,12 @@ dependency "rds" {
   }
 }
 
-dependency "dns" {
-  config_path = "../dns"
+dependency "web" {
+  config_path = "../web"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    zone_id = "Z00000000000000000"
-    # Unlike web_certificate_arn, this one is a real sa-east-1 ARN: only the CloudFront (web)
-    # cert is pinned to us-east-1 — the ALB cert lives in the stack's own region.
-    api_certificate_arn = "arn:aws:acm:sa-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+    distribution_domain_name = "d000000000000.cloudfront.net"
   }
 }
 
@@ -87,7 +94,16 @@ inputs = {
     { name = "API_PORT", value = "8000" },
     { name = "JWT_ALGORITHM", value = "HS256" },
     { name = "JWT_EXPIRE_MINUTES", value = "10080" },
-    { name = "EMAIL_FROM", value = "Silpo <onboarding@resend.dev>" },
+    # No custom domain yet — this is CloudFront's own default *.cloudfront.net domain for the
+    # web unit, used to build the password-reset link sent by email.
+    { name = "WEB_APP_URL", value = "https://${dependency.web.outputs.distribution_domain_name}" },
+    { name = "EMAIL_PROVIDER", value = "smtp" },
+    { name = "SMTP_HOST", value = "smtp.gmail.com" },
+    { name = "SMTP_PORT", value = "587" },
+    # Placeholder — must be the same mailbox as the real smtp_username secret (see
+    # secrets.tfvars.example). Gmail (and most SMTP providers) reject a From address that
+    # doesn't match the authenticated account, so keep these two in sync.
+    { name = "EMAIL_FROM", value = "Silpo <changeme@gmail.com>" },
   ]
 
   secrets = [
@@ -100,7 +116,13 @@ inputs = {
 
   secret_arns = [dependency.rds.outputs.secret_arn]
 
-  domain_name     = "api.silpoages.com"
-  certificate_arn = dependency.dns.outputs.api_certificate_arn
-  zone_id         = dependency.dns.outputs.zone_id
+  # No domain yet — the ALB serves plain HTTP on its own *.elb.amazonaws.com name
+  # (domain_name/certificate_arn/zone_id left at their null defaults).
+
+  # Lets silpo-backend's own CI assume a deploy role via OIDC (no long-lived AWS keys in
+  # GitHub secrets) to push a new image and force this service to redeploy it.
+  github_oidc_provider_arn = dependency.github_oidc.outputs.arn
+  github_repo              = "silpoages/silpo-backend"
+  github_deploy_branch     = "main"
+  ecr_repository_arn       = dependency.ecr.outputs.repository_arn
 }

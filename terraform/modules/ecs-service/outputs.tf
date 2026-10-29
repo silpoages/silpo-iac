@@ -33,7 +33,17 @@ output "task_role_arn" {
   value       = aws_iam_role.task.arn
 }
 
-output "resend_api_key_secret_arn" {
-  description = "ARN of the Secrets Manager secret for RESEND_API_KEY. Its value is a placeholder — set the real key with `aws secretsmanager put-secret-value`."
-  value       = aws_secretsmanager_secret.resend_api_key.arn
+output "deploy_role_arn" {
+  description = "ARN of the IAM role the GitHub repo's CI assumes via OIDC to deploy. Null if github_oidc_provider_arn wasn't set."
+  value       = local.create_deploy_role ? aws_iam_role.deploy[0].arn : null
+}
+
+output "smtp_username_secret_arn" {
+  description = "ARN of the Secrets Manager secret for SMTP_USERNAME. Its value is a placeholder — set the real username with `aws secretsmanager put-secret-value`."
+  value       = aws_secretsmanager_secret.smtp_username.arn
+}
+
+output "smtp_password_secret_arn" {
+  description = "ARN of the Secrets Manager secret for SMTP_PASSWORD. Its value is a placeholder — set the real password with `aws secretsmanager put-secret-value`."
+  value       = aws_secretsmanager_secret.smtp_password.arn
 }

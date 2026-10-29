@@ -25,7 +25,6 @@ the CI `Diagram` job (see [CI/CD](#cicd)), not by hand.
 | Web hosting         | S3 + CloudFront (static SPA, `silpo-web`)        |
 | Database            | RDS PostgreSQL (single-AZ, `db.t4g.micro`)       |
 | Container registry  | ECR                                              |
-| DNS / TLS           | Route53 + ACM (`silpoages.com`)                  |
 | Secrets             | AWS Secrets Manager                              |
 | Linting             | `tofu fmt`, `terragrunt hcl fmt`, TFLint         |
 | Security scanning   | tfsec                                            |
@@ -40,9 +39,9 @@ terraform/
     networking/    # VPC, public/private subnets, optional NAT gateway
     ecr/            # Container registry for the silpo-backend image
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
-    ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/Resend)
+    ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/SMTP)
     static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
-    dns/            # ACM certs (web + api) DNS-validated against the silpoages.com hosted zone
+    github-oidc-provider/ # GitHub Actions OIDC identity provider (one per AWS account)
 terragrunt/
   terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
@@ -51,16 +50,17 @@ terragrunt/
       networking/
       ecr/
       rds/
-      dns/
+      github-oidc/  # GitHub Actions OIDC provider, consumed by api/web's deploy roles
       api/
       web/
 ```
 
-`dns` looks up an existing Route53 hosted zone for `silpoages.com` (a `data` source, not a resource) —
-it doesn't register the domain itself. Registering it (through Route53 or elsewhere) is a real
-purchase, so it's a manual, one-time step outside Terraform; Route53 creates the hosted zone
-automatically once that's done. `web` and `api` each depend on `dns` for a validated ACM
-certificate and create their own alias record in that zone.
+No custom domain yet: `api` serves plain HTTP on the ALB's own `*.elb.amazonaws.com` name, and
+`web` serves HTTPS on CloudFront's own default `*.cloudfront.net` name (that default domain comes
+with its own CloudFront-issued certificate — no ACM cert or Route53 zone needed). If a domain is
+registered later, both `ecs-service` and `static-site` already support `domain_name` /
+`certificate_arn` / `zone_id` inputs — wiring those back in (plus a `dns` unit/module to issue the
+ACM certs) is a natural next step at that point.
 
 `silpo-mobile` (Expo/React Native) has no unit here — it isn't deployed to AWS. Distribution goes
 through the app stores, and builds/OTA updates through Expo's own EAS service.
@@ -97,11 +97,10 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   not another ~US$20-30 of always-on compute. `PriceClass_100` (North America + Europe edge
   locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
 
-**`silpoages.com` isn't free**, and isn't in the cost estimate below since neither cost is a
-Terraform resource: registering the domain is a real annual registrar fee (~US$13+/year for
-`.com` via Route53), and the hosted zone it creates costs ~US$0.50/month on top of that. The `dns`
-module's own resources (ACM certs, alias records) are free — see `infracost.yml`'s comment on why
-it's excluded.
+**No custom domain** — this project doesn't register one, so there's no Route53 hosted zone fee
+(~US$0.50/month) or annual registrar fee on top of the estimate below. `api` and `web` are reached
+through the ALB's and CloudFront's own default AWS domains instead (see
+[Repository layout](#repository-layout)).
 
 For the actual resource-by-resource number, on-demand pricing, excluding AWS free tier — see
 [Cost estimate](#cost-estimate) below, generated from this repo's own code rather than typed by
@@ -247,14 +246,16 @@ Module path: terraform/modules/static-site
 1. **Set the real AWS account ID.** Edit `terragrunt/live/shared/env.hcl` and replace the
    placeholder `account_id`. This namespaces the Terraform state bucket
    (`silpo-terraform-state-<account_id>`) so it doesn't collide with anyone else's AWS account.
-2. **Set the real Resend API key.** Terraform can't invent a real third-party API key, so it's
-   not a committed input:
+2. **Set the real SMTP credentials.** Terraform can't invent a real mailbox login, so it's not
+   a committed input:
    ```bash
    cp terragrunt/live/shared/api/secrets.tfvars.example terragrunt/live/shared/api/secrets.tfvars
    ```
-   Edit `secrets.tfvars` (git-ignored) and fill in the real key. Skipping this step is fine —
-   `resend_api_key` defaults to an empty string — but email sending won't work until it's set
-   and the `api` unit is re-applied.
+   Edit `secrets.tfvars` (git-ignored) and fill in the real `smtp_username`/`smtp_password`
+   (for Gmail, `smtp_password` must be an app password, not the account password). Also update
+   the `EMAIL_FROM` value in `terragrunt/live/shared/api/terragrunt.hcl` to match that mailbox.
+   Skipping this step is fine — both default to an empty string — but email sending won't work
+   until they're set and the `api` unit is re-applied.
 3. **Apply.** The `--backend-bootstrap` flag has Terragrunt create the S3 state bucket
    automatically if it doesn't exist yet (state locking uses S3's own native locking, no
    DynamoDB table needed) — no separate bootstrap step:
@@ -263,16 +264,43 @@ Module path: terraform/modules/static-site
    terragrunt apply --all --backend-bootstrap
    ```
    Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds` → `api`.
-4. **Push an image.** The `ecr` unit's output (`repository_url`) is where `silpo-backend`'s CI
-   should push images. The `api` unit currently deploys the `:latest` tag; wiring a real
-   build-and-deploy pipeline in `silpo-backend` is a natural next step.
-5. **Deploy the web build.** The `web` unit only provisions the bucket and distribution — it
-   doesn't build or upload `silpo-web`. After building it there:
-   ```bash
-   aws s3 sync dist/ s3://<web unit's bucket_name output> --delete
-   aws cloudfront create-invalidation --distribution-id <web unit's distribution_id output> --paths "/*"
-   ```
-   Wiring this into `silpo-web`'s own CI is a natural next step, same as the backend's image push.
+4. **Wire up `silpo-backend`'s deploy.** The `api` unit provisions a `deploy` IAM role that
+   `silpo-backend`'s own CI assumes via the `github-oidc` unit's OIDC provider — see the
+   `deploy` job in `silpo-backend/.github/workflows/ci.yml`. The `ecr` unit's
+   `image_tag_mutability` is `MUTABLE` specifically so that job can keep re-pushing the
+   `:latest` tag the `api` unit's task definition always deploys. After applying, set these as
+   **repository variables** in `silpo-backend`'s GitHub repo settings, from this stack's
+   outputs:
+   - `AWS_DEPLOY_ROLE_ARN` ← `api` unit's `deploy_role_arn` output
+   - `AWS_ECR_REPOSITORY_URL` ← `ecr` unit's `repository_url` output
+   - `AWS_ECS_CLUSTER` ← `api` unit's `ecs_cluster_name` output
+   - `AWS_ECS_SERVICE` ← `api` unit's `ecs_service_name` output
+
+   Once set, every push to `silpo-backend`'s `main` branch builds and pushes a new image, then
+   forces the ECS service to redeploy it.
+5. **Wire up `silpo-web`'s deploy.** The `web` unit provisions a `deploy` IAM role that
+   `silpo-web`'s own CI assumes via the `github-oidc` unit's OIDC provider (no long-lived AWS
+   keys in GitHub) — see the `deploy` job in `silpo-web/.github/workflows/ci.yml`. After
+   applying, set these as **repository variables** (not secrets — none of them are sensitive)
+   in `silpo-web`'s GitHub repo settings (Settings → Secrets and variables → Actions →
+   Variables), from this stack's `web` unit outputs:
+   - `AWS_DEPLOY_ROLE_ARN` ← `deploy_role_arn`
+   - `AWS_S3_BUCKET` ← `bucket_name`
+   - `AWS_CLOUDFRONT_DISTRIBUTION_ID` ← `distribution_id`
+   - `VITE_API_BASE_URL` ← `http://` + the `api` unit's `alb_dns_name` output (no custom
+     domain yet, so this is an AWS-generated hostname, not a fixed URL — re-set this variable
+     if the ALB is ever recreated)
+
+   Once set, every push to `silpo-web`'s `master` branch builds with that `VITE_API_BASE_URL`,
+   syncs `dist/` to the bucket, and invalidates the CloudFront cache automatically.
+
+   **Known limitation without a domain**: `web` is served over HTTPS (CloudFront's default
+   certificate) but `api` is plain HTTP (no ACM cert possible without a domain to issue it
+   for). Browsers block "mixed content" — an HTTPS page can't call an HTTP API via
+   `fetch`/XHR — so `silpo-web` won't actually be able to reach `silpo-backend` in this shared
+   environment until a real domain is registered and wired back into both units (see
+   [Repository layout](#repository-layout)). Fine for exercising the deploy pipelines and
+   infra in isolation; not a working end-to-end setup until then.
 
 ## CI/CD
 

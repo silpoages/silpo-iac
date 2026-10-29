@@ -3,6 +3,8 @@ locals {
     Module = "ecs-service"
   })
 
+  create_deploy_role = var.github_oidc_provider_arn != null
+
   serve_https = var.certificate_arn != null
 
   api_base_url = coalesce(
@@ -81,20 +83,32 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
 }
 
 # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
-resource "aws_secretsmanager_secret" "resend_api_key" {
-  name = "${var.name}/resend-api-key"
+resource "aws_secretsmanager_secret" "smtp_username" {
+  name = "${var.name}/smtp-username"
   tags = local.tags
 }
 
-resource "aws_secretsmanager_secret_version" "resend_api_key" {
-  secret_id     = aws_secretsmanager_secret.resend_api_key.id
-  secret_string = var.resend_api_key
+resource "aws_secretsmanager_secret_version" "smtp_username" {
+  secret_id     = aws_secretsmanager_secret.smtp_username.id
+  secret_string = var.smtp_username
+}
+
+# tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
+resource "aws_secretsmanager_secret" "smtp_password" {
+  name = "${var.name}/smtp-password"
+  tags = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "smtp_password" {
+  secret_id     = aws_secretsmanager_secret.smtp_password.id
+  secret_string = var.smtp_password
 }
 
 locals {
   internal_secret_arns = [
     aws_secretsmanager_secret.jwt_secret.arn,
-    aws_secretsmanager_secret.resend_api_key.arn,
+    aws_secretsmanager_secret.smtp_username.arn,
+    aws_secretsmanager_secret.smtp_password.arn,
   ]
 
   all_secret_arns = concat(local.internal_secret_arns, var.secret_arns)
@@ -102,7 +116,8 @@ locals {
   all_secrets = concat(
     [
       { name = "JWT_SECRET_KEY", value_from = aws_secretsmanager_secret.jwt_secret.arn },
-      { name = "RESEND_API_KEY", value_from = aws_secretsmanager_secret.resend_api_key.arn },
+      { name = "SMTP_USERNAME", value_from = aws_secretsmanager_secret.smtp_username.arn },
+      { name = "SMTP_PASSWORD", value_from = aws_secretsmanager_secret.smtp_password.arn },
     ],
     var.secrets,
   )
@@ -179,11 +194,11 @@ resource "aws_security_group" "service" {
   }
 
   egress {
-    description = "All outbound traffic (e.g. RDS, Resend API)"
+    description = "All outbound traffic (e.g. RDS, SMTP server)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- needs internet egress (Resend API) since there's no NAT gateway
+    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- needs internet egress (SMTP server) since there's no NAT gateway
   }
 
   tags = merge(local.tags, {
@@ -337,4 +352,75 @@ resource "aws_ecs_service" "this" {
   tags = local.tags
 
   depends_on = [aws_lb_listener.http]
+}
+
+# Lets the GitHub repo's own CI assume this role via OIDC (no long-lived AWS keys in GitHub
+# secrets) to push a new image and force the ECS service to redeploy it.
+data "aws_iam_policy_document" "github_actions_assume" {
+  count = local.create_deploy_role ? 1 : 0
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [var.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}"]
+    }
+  }
+}
+
+resource "aws_iam_role" "deploy" {
+  count              = local.create_deploy_role ? 1 : 0
+  name               = "${var.name}-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume[0].json
+
+  tags = local.tags
+}
+
+data "aws_iam_policy_document" "deploy_permissions" {
+  count = local.create_deploy_role ? 1 : 0
+
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+    ]
+    resources = [var.ecr_repository_arn]
+  }
+
+  statement {
+    actions = ["ecs:UpdateService", "ecs:DescribeServices"]
+    # aws_ecs_service.this.id is the service's ARN (the AWS provider doesn't expose a
+    # separate .arn attribute on this resource).
+    resources = [aws_ecs_service.this.id]
+  }
+}
+
+resource "aws_iam_role_policy" "deploy" {
+  count  = local.create_deploy_role ? 1 : 0
+  name   = "${var.name}-deploy"
+  role   = aws_iam_role.deploy[0].id
+  policy = data.aws_iam_policy_document.deploy_permissions[0].json
 }
