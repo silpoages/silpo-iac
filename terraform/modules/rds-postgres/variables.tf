@@ -4,9 +4,9 @@ variable "name" {
 }
 
 variable "engine_version" {
-  description = "PostgreSQL engine version."
+  description = "PostgreSQL engine version. AWS periodically retires old minor versions per-region, so this may need bumping — check `aws rds describe-db-engine-versions --engine postgres --region <region>` if apply fails with \"Cannot find version\"."
   type        = string
-  default     = "16.4"
+  default     = "16.15"
 }
 
 variable "instance_class" {
