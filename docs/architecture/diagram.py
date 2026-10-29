@@ -40,6 +40,8 @@ with Diagram(
 ):
     users = Users("Users")
 
+    api_cdn = CloudFront("CloudFront\n(api)")
+
     with Cluster("VPC (silpo-shared)"):
         with Cluster("Public Subnet"):
             alb = ELB("ALB")
@@ -51,6 +53,8 @@ with Diagram(
 
         api >> Edge(label="5432") >> db
 
+    api_cdn >> Edge(label="HTTP") >> alb
+
     with Cluster("Supporting services"):
         ecr = ECR("ECR\nsilpo-backend")
         secrets = SecretsManager("Secrets Manager\n(JWT, DB, SMTP)")
@@ -59,10 +63,12 @@ with Diagram(
     secrets >> Edge(style="dashed", label="env vars") >> api
 
     with Cluster("silpo-web"):
-        cdn = CloudFront("CloudFront")
+        web_cdn = CloudFront("CloudFront\n(web)")
         web = S3("S3 bucket")
-        cdn >> web
+        web_cdn >> web
 
-    # No custom domain: users hit the ALB and CloudFront's own default AWS domains directly.
-    users >> Edge(label="HTTP") >> alb
-    users >> Edge(label="HTTPS") >> cdn
+    # No custom domain: both the API and the web app are reached through a CloudFront
+    # distribution's own default AWS domain (api_cdn exists purely to get a real HTTPS
+    # endpoint for the ALB, which has no ACM cert of its own).
+    users >> Edge(label="HTTPS") >> api_cdn
+    users >> Edge(label="HTTPS") >> web_cdn

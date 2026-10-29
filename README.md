@@ -55,12 +55,16 @@ terragrunt/
       web/
 ```
 
-No custom domain yet: `api` serves plain HTTP on the ALB's own `*.elb.amazonaws.com` name, and
-`web` serves HTTPS on CloudFront's own default `*.cloudfront.net` name (that default domain comes
-with its own CloudFront-issued certificate — no ACM cert or Route53 zone needed). If a domain is
-registered later, both `ecs-service` and `static-site` already support `domain_name` /
-`certificate_arn` / `zone_id` inputs — wiring those back in (plus a `dns` unit/module to issue the
-ACM certs) is a natural next step at that point.
+No custom domain yet: both `api` and `web` are reached through CloudFront's own default
+`*.cloudfront.net` domains (that default domain comes with its own CloudFront-issued
+certificate — no ACM cert or Route53 zone needed), via `ecs-service`'s `enable_cloudfront` and
+`static-site`'s always-on CloudFront respectively. `api`'s CloudFront distribution sits in front
+of the ALB purely to get a real HTTPS endpoint — without it, `web` (HTTPS) couldn't call `api`
+(would otherwise be plain HTTP) at all, since browsers block that "mixed content" combination. If
+a domain is registered later, both `ecs-service` and `static-site` already support `domain_name` /
+`certificate_arn` / `zone_id` inputs — wiring those back in (which also turns off `api`'s
+CloudFront passthrough, see `enable_cloudfront`'s description) plus a `dns` unit/module to issue
+the ACM certs is a natural next step at that point.
 
 `silpo-mobile` (Expo/React Native) has no unit here — it isn't deployed to AWS. Distribution goes
 through the app stores, and builds/OTA updates through Expo's own EAS service.
@@ -99,8 +103,10 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
 
 **No custom domain** — this project doesn't register one, so there's no Route53 hosted zone fee
 (~US$0.50/month) or annual registrar fee on top of the estimate below. `api` and `web` are reached
-through the ALB's and CloudFront's own default AWS domains instead (see
-[Repository layout](#repository-layout)).
+through CloudFront's own default AWS domains instead (see [Repository layout](#repository-layout)),
+which is also why `api` gets its own CloudFront distribution (`enable_cloudfront`) in front of the
+ALB — a bit of extra CloudFront cost (same per-request/GB pricing as `web`'s, cents/month at this
+traffic) in exchange for an HTTPS endpoint `web` can actually call without a domain.
 
 For the actual resource-by-resource number, on-demand pricing, excluding AWS free tier — see
 [Cost estimate](#cost-estimate) below, generated from this repo's own code rather than typed by
@@ -291,20 +297,12 @@ Module path: terraform/modules/static-site
    - `AWS_DEPLOY_ROLE_ARN` ← `deploy_role_arn`
    - `AWS_S3_BUCKET` ← `bucket_name`
    - `AWS_CLOUDFRONT_DISTRIBUTION_ID` ← `distribution_id`
-   - `VITE_API_BASE_URL` ← `http://` + the `api` unit's `alb_dns_name` output (no custom
-     domain yet, so this is an AWS-generated hostname, not a fixed URL — re-set this variable
-     if the ALB is ever recreated)
+   - `VITE_API_BASE_URL` ← `https://` + the `api` unit's `cloudfront_domain_name` output (no
+     custom domain yet, so this is an AWS-generated hostname, not a fixed URL — re-set this
+     variable if that CloudFront distribution is ever recreated)
 
    Once set, every push to `silpo-web`'s `master` branch builds with that `VITE_API_BASE_URL`,
    syncs `dist/` to the bucket, and invalidates the CloudFront cache automatically.
-
-   **Known limitation without a domain**: `web` is served over HTTPS (CloudFront's default
-   certificate) but `api` is plain HTTP (no ACM cert possible without a domain to issue it
-   for). Browsers block "mixed content" — an HTTPS page can't call an HTTP API via
-   `fetch`/XHR — so `silpo-web` won't actually be able to reach `silpo-backend` in this shared
-   environment until a real domain is registered and wired back into both units (see
-   [Repository layout](#repository-layout)). Fine for exercising the deploy pipelines and
-   infra in isolation; not a working end-to-end setup until then.
 
 ## CI/CD
 
