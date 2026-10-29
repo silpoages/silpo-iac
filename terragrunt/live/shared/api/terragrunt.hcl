@@ -100,10 +100,10 @@ inputs = {
     { name = "EMAIL_PROVIDER", value = "smtp" },
     { name = "SMTP_HOST", value = "smtp.gmail.com" },
     { name = "SMTP_PORT", value = "587" },
-    # Placeholder — must be the same mailbox as the real smtp_username secret (see
+    # Must be the same mailbox as the real smtp_username secret (see
     # secrets.tfvars.example). Gmail (and most SMTP providers) reject a From address that
     # doesn't match the authenticated account, so keep these two in sync.
-    { name = "EMAIL_FROM", value = "Silpo <changeme@gmail.com>" },
+    { name = "EMAIL_FROM", value = "Silpo <silpoages@gmail.com>" },
   ]
 
   secrets = [
