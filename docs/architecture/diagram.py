@@ -10,7 +10,7 @@ from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.compute import ECR, ECS
 from diagrams.aws.database import RDSPostgresqlInstance
 from diagrams.aws.general import Users
-from diagrams.aws.network import ELB, CloudFront, Route53
+from diagrams.aws.network import ELB, CloudFront
 from diagrams.aws.security import SecretsManager
 from diagrams.aws.storage import S3
 
@@ -53,7 +53,7 @@ with Diagram(
 
     with Cluster("Supporting services"):
         ecr = ECR("ECR\nsilpo-backend")
-        secrets = SecretsManager("Secrets Manager\n(JWT, DB, Resend)")
+        secrets = SecretsManager("Secrets Manager\n(JWT, DB, SMTP)")
 
     ecr >> Edge(style="dashed", label="image") >> api
     secrets >> Edge(style="dashed", label="env vars") >> api
@@ -63,9 +63,6 @@ with Diagram(
         web = S3("S3 bucket")
         cdn >> web
 
-    dns = Route53("Route53\nsilpoages.com")
-    dns >> Edge(label="alias", style="dashed") >> alb
-    dns >> Edge(label="alias", style="dashed") >> cdn
-
-    users >> Edge(label="HTTPS") >> alb
+    # No custom domain: users hit the ALB and CloudFront's own default AWS domains directly.
+    users >> Edge(label="HTTP") >> alb
     users >> Edge(label="HTTPS") >> cdn

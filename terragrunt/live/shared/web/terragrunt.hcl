@@ -6,14 +6,12 @@ terraform {
   source = "../../../../terraform/modules/static-site"
 }
 
-dependency "dns" {
-  config_path = "../dns"
+dependency "github_oidc" {
+  config_path = "../github-oidc"
 
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
   mock_outputs = {
-    zone_id = "Z00000000000000000"
-    # us-east-1, not the stack's own region: CloudFront only accepts ACM certs issued there.
-    web_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+    arn = "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com"
   }
 }
 
@@ -29,7 +27,13 @@ inputs = {
   # paths must fall back to index.html instead of S3's raw 403/404.
   spa_fallback = true
 
-  aliases         = ["silpoages.com", "www.silpoages.com"]
-  certificate_arn = dependency.dns.outputs.web_certificate_arn
-  zone_id         = dependency.dns.outputs.zone_id
+  # No domain yet — served from CloudFront's own default *.cloudfront.net domain (aliases,
+  # certificate_arn and zone_id left at their null/empty defaults). Still HTTPS: that default
+  # domain comes with its own CloudFront-issued certificate, no ACM cert needed.
+
+  # Lets silpo-web's own CI assume a deploy role via OIDC (no long-lived AWS keys in GitHub
+  # secrets) to sync dist/ to this bucket and invalidate the CloudFront distribution.
+  github_oidc_provider_arn = dependency.github_oidc.outputs.arn
+  github_repo              = "silpoages/silpo-web"
+  github_deploy_branch     = "master"
 }

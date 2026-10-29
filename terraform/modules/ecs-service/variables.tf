@@ -82,8 +82,15 @@ variable "secrets" {
   default = []
 }
 
-variable "resend_api_key" {
-  description = "Resend API key, stored in Secrets Manager as RESEND_API_KEY. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
+variable "smtp_username" {
+  description = "SMTP account username, stored in Secrets Manager as SMTP_USERNAME. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "smtp_password" {
+  description = "SMTP account password (e.g. a Gmail app password), stored in Secrets Manager as SMTP_PASSWORD. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
   type        = string
   sensitive   = true
   default     = ""
@@ -129,6 +136,30 @@ variable "enable_container_insights" {
   description = "Whether to enable ECS Container Insights (extra CloudWatch metrics cost)."
   type        = bool
   default     = false
+}
+
+variable "github_oidc_provider_arn" {
+  description = "ARN of the GitHub Actions OIDC provider (see the github-oidc-provider module). Leave null to skip creating a CI deploy role."
+  type        = string
+  default     = null
+}
+
+variable "github_repo" {
+  description = "GitHub repo allowed to assume the deploy role, as \"org/repo\" (e.g. \"silpoages/silpo-backend\"). Required if github_oidc_provider_arn is set."
+  type        = string
+  default     = null
+}
+
+variable "github_deploy_branch" {
+  description = "Branch allowed to assume the deploy role via OIDC — CI can only deploy from this branch."
+  type        = string
+  default     = "main"
+}
+
+variable "ecr_repository_arn" {
+  description = "ARN of the ECR repository CI pushes images to. Required if github_oidc_provider_arn is set, so the deploy role's push permission can be scoped to it."
+  type        = string
+  default     = null
 }
 
 variable "tags" {
