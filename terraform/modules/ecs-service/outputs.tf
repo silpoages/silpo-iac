@@ -52,3 +52,8 @@ output "smtp_password_secret_arn" {
   description = "ARN of the Secrets Manager secret for SMTP_PASSWORD. Its value is a placeholder — set the real password with `aws secretsmanager put-secret-value`."
   value       = aws_secretsmanager_secret.smtp_password.arn
 }
+
+output "db_access_group_name" {
+  description = "IAM group whose members can open a tunnel to RDS with scripts/db-tunnel.sh. Null unless enable_execute_command and db_access_secret_arn are set."
+  value       = local.create_db_access_group ? aws_iam_group.db_access[0].name : null
+}

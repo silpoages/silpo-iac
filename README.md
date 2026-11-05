@@ -42,6 +42,8 @@ terraform/
     ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/SMTP)
     static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
     github-oidc-provider/ # GitHub Actions OIDC identity provider (one per AWS account)
+scripts/
+  db-tunnel.sh      # Opens a tunnel to RDS for DBeaver/psql (see docs/db-access.md)
 terragrunt/
   terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
@@ -76,6 +78,13 @@ Running a full second copy (ALB + RDS + Fargate) would roughly double the fixed 
 a project with this little traffic, so it wasn't worth it. If that changes (e.g. real users,
 need for a safe place to test destructive changes), copy `terragrunt/live/shared/` to a new
 `terragrunt/live/<name>/` folder with its own `env.hcl` — every module already supports it.
+
+## Database access
+
+RDS is private (no public endpoint, no bastion). To reach it from a laptop — DBeaver, psql — run
+`scripts/db-tunnel.sh`, which opens an SSM port-forwarding tunnel through the running API task
+(ECS Exec, enabled in the `api` unit). Access is granted by adding an IAM user to the
+`silpo-shared-db-access` group. Step-by-step guide for the team: [docs/db-access.md](docs/db-access.md).
 
 ## Cost trade-offs
 
