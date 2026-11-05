@@ -179,3 +179,15 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_execute_command" {
+  description = "Enable ECS Exec on the service, so `aws ecs execute-command` (a shell in the container) and SSM port forwarding through the task (e.g. to reach RDS from a laptop) work. Only tasks started after this is turned on get the agent."
+  type        = bool
+  default     = false
+}
+
+variable "db_access_secret_arn" {
+  description = "ARN of the RDS connection-details secret. When set together with enable_execute_command, creates an IAM group whose members can read that secret and open a port-forwarding tunnel to the database through the service's tasks (see scripts/db-tunnel.sh). Leave null to skip."
+  type        = string
+  default     = null
+}

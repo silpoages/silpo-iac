@@ -129,4 +129,10 @@ inputs = {
   github_repo              = "silpoages/silpo-backend"
   github_deploy_branch     = "main"
   ecr_repository_arn       = dependency.ecr.outputs.repository_arn
+
+  # Lets the team reach RDS from their own machines (DBeaver, psql) through a port-forwarding
+  # tunnel via the running task — see docs/db-access.md. Add people to the
+  # "silpo-shared-db-access" IAM group to grant access.
+  enable_execute_command = true
+  db_access_secret_arn   = dependency.rds.outputs.secret_arn
 }

@@ -393,6 +393,8 @@ resource "aws_ecs_service" "this" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
+  enable_execute_command = var.enable_execute_command
+
   network_configuration {
     subnets          = var.task_subnet_ids
     security_groups  = [aws_security_group.service.id]
@@ -479,6 +481,43 @@ data "aws_iam_policy_document" "deploy_permissions" {
     # separate .arn attribute on this resource).
     resources = [aws_ecs_service.this.id]
   }
+
+  # Migrations: CI reads the service's current task definition and runs it once as a one-off
+  # task with the command overridden to `alembic upgrade head`, before redeploying the service.
+  statement {
+    sid       = "ReadTaskDefinition"
+    actions   = ["ecs:DescribeTaskDefinition"]
+    resources = ["*"] # tfsec:ignore:aws-iam-no-policy-wildcards -- DescribeTaskDefinition doesn't support resource-level permissions
+  }
+
+  statement {
+    sid       = "RunMigrationTask"
+    actions   = ["ecs:RunTask"]
+    resources = ["${aws_ecs_task_definition.this.arn_without_revision}:*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [aws_ecs_cluster.this.arn]
+    }
+  }
+
+  statement {
+    sid       = "WaitForMigrationTask"
+    actions   = ["ecs:DescribeTasks"]
+    resources = [local.cluster_tasks_arn]
+  }
+
+  # RunTask has to hand the task definition's own roles to ECS.
+  statement {
+    sid       = "PassTaskRoles"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.execution.arn, aws_iam_role.task.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "deploy" {
@@ -486,4 +525,91 @@ resource "aws_iam_role_policy" "deploy" {
   name   = "${var.name}-deploy"
   role   = aws_iam_role.deploy[0].id
   policy = data.aws_iam_policy_document.deploy_permissions[0].json
+}
+
+# ECS Exec: the SSM agent ECS injects into each task needs these to open its control/data
+# channels. Used for `aws ecs execute-command` and for port forwarding to RDS through a task.
+data "aws_iam_policy_document" "execute_command" {
+  count = var.enable_execute_command ? 1 : 0
+
+  statement {
+    actions = [
+      "ssmmessages:CreateControlChannel",
+      "ssmmessages:CreateDataChannel",
+      "ssmmessages:OpenControlChannel",
+      "ssmmessages:OpenDataChannel",
+    ]
+    resources = ["*"] # tfsec:ignore:aws-iam-no-policy-wildcards -- ssmmessages actions don't support resource-level permissions
+  }
+}
+
+resource "aws_iam_role_policy" "execute_command" {
+  count  = var.enable_execute_command ? 1 : 0
+  name   = "${var.name}-execute-command"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.execute_command[0].json
+}
+
+# Database access for humans: add an IAM user to this group and they can run
+# scripts/db-tunnel.sh to reach RDS from their own machine (DBeaver, psql, ...) through a
+# running task — no bastion, no public database, no inbound port opened anywhere.
+locals {
+  create_db_access_group = var.enable_execute_command && var.db_access_secret_arn != null
+
+  # Tasks of this cluster: arn:aws:ecs:<region>:<account>:task/<cluster>/<task id>
+  cluster_tasks_arn = "${replace(aws_ecs_cluster.this.arn, ":cluster/", ":task/")}/*"
+}
+
+data "aws_iam_policy_document" "db_access" {
+  count = local.create_db_access_group ? 1 : 0
+
+  statement {
+    sid       = "FindRunningTask"
+    actions   = ["ecs:ListTasks", "ecs:DescribeTasks"]
+    resources = ["*"] # tfsec:ignore:aws-iam-no-policy-wildcards -- read-only, scoped to this cluster by the condition below
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [aws_ecs_cluster.this.arn]
+    }
+  }
+
+  statement {
+    sid       = "ExecIntoTask"
+    actions   = ["ecs:ExecuteCommand"]
+    resources = [aws_ecs_cluster.this.arn, local.cluster_tasks_arn]
+  }
+
+  statement {
+    sid     = "PortForwardThroughTask"
+    actions = ["ssm:StartSession"]
+    resources = [
+      local.cluster_tasks_arn,
+      "arn:aws:ssm:${data.aws_region.current.name}::document/AWS-StartPortForwardingSessionToRemoteHost",
+    ]
+  }
+
+  statement {
+    sid       = "ManageOwnSessions"
+    actions   = ["ssm:TerminateSession", "ssm:ResumeSession"]
+    resources = ["arn:aws:ssm:*:*:session/$${aws:userid}-*"]
+  }
+
+  statement {
+    sid       = "ReadDatabaseCredentials"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [var.db_access_secret_arn]
+  }
+}
+
+resource "aws_iam_group" "db_access" {
+  count = local.create_db_access_group ? 1 : 0
+  name  = "${var.name}-db-access"
+}
+
+resource "aws_iam_group_policy" "db_access" {
+  count  = local.create_db_access_group ? 1 : 0
+  name   = "${var.name}-db-access"
+  group  = aws_iam_group.db_access[0].name
+  policy = data.aws_iam_policy_document.db_access[0].json
 }
