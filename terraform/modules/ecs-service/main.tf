@@ -581,8 +581,8 @@ data "aws_iam_policy_document" "db_access" {
   }
 
   statement {
-    sid       = "PortForwardThroughTask"
-    actions   = ["ssm:StartSession"]
+    sid     = "PortForwardThroughTask"
+    actions = ["ssm:StartSession"]
     resources = [
       local.cluster_tasks_arn,
       "arn:aws:ssm:${data.aws_region.current.name}::document/AWS-StartPortForwardingSessionToRemoteHost",
