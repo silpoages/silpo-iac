@@ -247,14 +247,30 @@ Module path: terraform/modules/static-site
                                                                                                              
  Project total                                                                                       $0.00   
 
- OVERALL TOTAL                                                                                     $41.02 
+──────────────────────────────────
+Project: media-bucket
+Module path: terraform/modules/media-bucket
+
+ Name                                             Monthly Qty  Unit                    Monthly Cost   
+                                                                                                      
+ aws_s3_bucket.this                                                                                   
+ └─ Standard                                                                                          
+    ├─ Storage                              Monthly cost depends on usage: $0.023 per GB              
+    ├─ PUT, COPY, POST, LIST requests       Monthly cost depends on usage: $0.005 per 1k requests     
+    ├─ GET, SELECT, and all other requests  Monthly cost depends on usage: $0.0004 per 1k requests    
+    ├─ Select data scanned                  Monthly cost depends on usage: $0.002 per GB              
+    └─ Select data returned                 Monthly cost depends on usage: $0.0007 per GB             
+                                                                                                      
+ Project total                                                                                $0.00   
+
+ OVERALL TOTAL                                                                              $41.02 
 
 *Usage costs can be estimated by updating Infracost Cloud settings, see docs for other options.
 
 ──────────────────────────────────
-49 cloud resources were detected:
-∙ 12 were estimated
-∙ 37 were free
+56 cloud resources were detected:
+∙ 13 were estimated
+∙ 43 were free
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Project                                            ┃ Baseline cost ┃ Usage cost* ┃ Total cost ┃
@@ -264,6 +280,7 @@ Module path: terraform/modules/static-site
 ┃ rds-postgres                                       ┃           $14 ┃           - ┃        $14 ┃
 ┃ ecs-service                                        ┃           $27 ┃           - ┃        $27 ┃
 ┃ static-site                                        ┃         $0.00 ┃           - ┃      $0.00 ┃
+┃ media-bucket                                       ┃         $0.00 ┃           - ┃      $0.00 ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━┻━━━━━━━━━━━━┛
 ```
 <!-- infracost-end -->
