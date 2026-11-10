@@ -76,3 +76,10 @@ projects:
     terraform_vars:
       name: silpo-web-000000000000
       spa_fallback: true
+
+  - path: terraform/modules/media-bucket
+    name: media-bucket
+    env:
+      AWS_REGION: ${AWS_REGION}
+    terraform_vars:
+      name: silpo-media-000000000000

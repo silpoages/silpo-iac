@@ -191,3 +191,20 @@ variable "db_access_secret_arn" {
   type        = string
   default     = null
 }
+
+variable "media_bucket_arn" {
+  description = "ARN of the S3 bucket for files uploaded through the API (see the media-bucket module). When set, the task role gets read/write/delete access under media_bucket_prefix and the container gets the AUDIO_STORAGE_BACKEND=s3 / AUDIO_S3_* env vars silpo-backend reads. Leave null to skip (uploads then go to the task's ephemeral disk and are lost on restart)."
+  type        = string
+  default     = null
+}
+
+variable "media_bucket_prefix" {
+  description = "Key prefix (with trailing slash) the API stores uploaded files under in media_bucket_arn, and the only part of the bucket the task role can touch."
+  type        = string
+  default     = "meditations/"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9!_.*'()-]+(/[A-Za-z0-9!_.*'()-]+)*/$", var.media_bucket_prefix))
+    error_message = "media_bucket_prefix must be a non-empty S3 key prefix ending with \"/\" (e.g. \"meditations/\")."
+  }
+}
