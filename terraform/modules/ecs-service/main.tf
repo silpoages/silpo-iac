@@ -172,6 +172,18 @@ data "aws_iam_policy_document" "media_access" {
     actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
     resources = ["${var.media_bucket_arn}/${var.media_bucket_prefix}*"]
   }
+
+  # Without ListBucket, S3 answers HeadObject/GetObject on a missing key with 403 instead of
+  # 404, so the API can't tell "no such file" from a real permission error (and its media
+  # route would 500 instead of 404). Not narrowed with an s3:prefix condition: object
+  # requests carry no s3:prefix key, so S3's implicit ListBucket check would fail and the
+  # 403 would stay. The bucket only holds API uploads (see media-bucket), so listing it
+  # exposes nothing beyond what the role can already read.
+  statement {
+    sid       = "ListMediaBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [var.media_bucket_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "media_access" {

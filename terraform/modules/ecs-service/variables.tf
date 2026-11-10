@@ -193,7 +193,7 @@ variable "db_access_secret_arn" {
 }
 
 variable "media_bucket_arn" {
-  description = "ARN of the S3 bucket for files uploaded through the API (see the media-bucket module). When set, the task role gets read/write/delete access under media_bucket_prefix and the container gets the AUDIO_STORAGE_BACKEND=s3 / AUDIO_S3_* env vars silpo-backend reads. Leave null to skip (uploads then go to the task's ephemeral disk and are lost on restart)."
+  description = "ARN of the S3 bucket for files uploaded through the API (see the media-bucket module). When set, the task role gets read/write/delete access under media_bucket_prefix (plus ListBucket on the bucket, so missing files answer 404 instead of 403) and the container gets the AUDIO_STORAGE_BACKEND=s3 / AUDIO_S3_* env vars silpo-backend reads. Leave null to skip (uploads then go to the task's ephemeral disk and are lost on restart)."
   type        = string
   default     = null
 }
