@@ -59,8 +59,12 @@ with Diagram(
         ecr = ECR("ECR\nsilpo-backend")
         secrets = SecretsManager("Secrets Manager\n(JWT, DB, SMTP)")
 
+        media = S3("S3 bucket\n(meditation audio)")
+
     ecr >> Edge(style="dashed", label="image") >> api
     secrets >> Edge(style="dashed", label="env vars") >> api
+    api >> Edge(label="uploads") >> media
+    users >> Edge(style="dashed", label="presigned URL") >> media
 
     with Cluster("silpo-web"):
         web_cdn = CloudFront("CloudFront\n(web)")

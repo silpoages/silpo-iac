@@ -19,9 +19,21 @@ locals {
     "${local.serve_https ? "https" : "http"}://${aws_lb.this.dns_name}",
   )
 
+  use_media_bucket = var.media_bucket_arn != null
+
+  # Uploaded files (meditation MP3s) go to S3: Fargate's own disk is wiped on every task
+  # restart. silpo-backend reads these to pick its S3 storage backend.
+  media_environment = local.use_media_bucket ? [
+    { name = "AUDIO_STORAGE_BACKEND", value = "s3" },
+    { name = "AUDIO_S3_BUCKET", value = element(split(":::", var.media_bucket_arn), 1) },
+    { name = "AUDIO_S3_PREFIX", value = var.media_bucket_prefix },
+    { name = "AUDIO_S3_REGION", value = data.aws_region.current.name },
+  ] : []
+
   container_environment = concat(
     var.environment_variables,
     [{ name = "API_BASE_URL", value = local.api_base_url }],
+    local.media_environment,
   )
 }
 
@@ -147,6 +159,26 @@ resource "aws_iam_role" "task" {
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
 
   tags = local.tags
+}
+
+# Lets the app read/write/delete uploaded files under media_bucket_prefix only. The API
+# streams nothing itself: it hands clients presigned GET URLs, signed with these same
+# credentials, so GetObject here is what makes those URLs work.
+data "aws_iam_policy_document" "media_access" {
+  count = local.use_media_bucket ? 1 : 0
+
+  statement {
+    sid       = "ReadWriteMediaObjects"
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["${var.media_bucket_arn}/${var.media_bucket_prefix}*"]
+  }
+}
+
+resource "aws_iam_role_policy" "media_access" {
+  count  = local.use_media_bucket ? 1 : 0
+  name   = "${var.name}-media-access"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.media_access[0].json
 }
 
 resource "aws_security_group" "alb" {

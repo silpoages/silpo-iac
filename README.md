@@ -41,6 +41,7 @@ terraform/
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
     ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/SMTP)
     static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
+    media-bucket/   # Private S3 bucket for files uploaded through the API (meditation MP3s)
     github-oidc-provider/ # GitHub Actions OIDC identity provider (one per AWS account)
 scripts/
   db-tunnel.sh      # Opens a tunnel to RDS for DBeaver/psql (see docs/db-access.md)
@@ -53,6 +54,7 @@ terragrunt/
       ecr/
       rds/
       github-oidc/  # GitHub Actions OIDC provider, consumed by api/web's deploy roles
+      media/        # Private bucket for uploaded meditation audio, consumed by api
       api/
       web/
 ```
@@ -109,6 +111,13 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   hosting bills per request/GB served, not per second of uptime — at this traffic it's cents/month,
   not another ~US$20-30 of always-on compute. `PriceClass_100` (North America + Europe edge
   locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
+
+- **Uploaded media on private S3** (`media-bucket` module), not an EFS volume on the task. Fargate's
+  own disk is wiped on every restart, so uploaded meditation MP3s need to live elsewhere; S3 bills
+  per GB stored/requested (cents/month for a few hundred MB of audio) with no always-on cost.
+  The bucket stays private: the API returns short-lived presigned URLs for playback, and the task
+  role can only touch the `meditations/` prefix. Versioning keeps deleted/overwritten files
+  restorable for 30 days.
 
 **No custom domain** — this project doesn't register one, so there's no Route53 hosted zone fee
 (~US$0.50/month) or annual registrar fee on top of the estimate below. `api` and `web` are reached
@@ -290,7 +299,7 @@ Module path: terraform/modules/static-site
    cd terragrunt/live/shared
    terragrunt apply --all --backend-bootstrap
    ```
-   Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds` → `api`.
+   Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds`/`media` → `api`.
 4. **Wire up `silpo-backend`'s deploy.** The `api` unit provisions a `deploy` IAM role that
    `silpo-backend`'s own CI assumes via the `github-oidc` unit's OIDC provider — see the
    `deploy` job in `silpo-backend/.github/workflows/ci.yml`. The `ecr` unit's
