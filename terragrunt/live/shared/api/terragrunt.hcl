@@ -125,9 +125,10 @@ inputs = {
 
   secret_arns = [dependency.rds.outputs.secret_arn]
 
-  # Uploaded meditation MP3s. Fargate's disk is wiped on every task restart, so they live in
-  # S3; this also sets the AUDIO_STORAGE_BACKEND/AUDIO_S3_* env vars silpo-backend reads and
-  # grants the task role access to the "meditations/" prefix.
+  # Uploaded meditation MP3s and diary photos. Fargate's disk is wiped on every task restart,
+  # so they live in S3; this also sets the AUDIO_STORAGE_BACKEND/AUDIO_S3_*/DIARY_IMAGE_S3_PREFIX
+  # env vars silpo-backend reads and grants the task role access to the "meditations/" and
+  # "diary/" prefixes.
   media_bucket_arn = dependency.media.outputs.bucket_arn
 
   # No domain yet (domain_name/certificate_arn/zone_id left at their null defaults), so front
