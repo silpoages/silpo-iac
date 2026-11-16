@@ -21,14 +21,18 @@ locals {
 
   use_media_bucket = var.media_bucket_arn != null
 
-  # Uploaded files (meditation MP3s) go to S3: Fargate's own disk is wiped on every task
-  # restart. silpo-backend reads these to pick its S3 storage backend.
+  # Uploaded files (meditation MP3s and diary photos) go to S3: Fargate's own disk is wiped
+  # on every task restart. silpo-backend reads these to pick its S3 storage backend; diary
+  # photos share the bucket and backend switch, under their own prefix.
   media_environment = local.use_media_bucket ? [
     { name = "AUDIO_STORAGE_BACKEND", value = "s3" },
     { name = "AUDIO_S3_BUCKET", value = element(split(":::", var.media_bucket_arn), 1) },
     { name = "AUDIO_S3_PREFIX", value = var.media_bucket_prefix },
     { name = "AUDIO_S3_REGION", value = data.aws_region.current.name },
+    { name = "DIARY_IMAGE_S3_PREFIX", value = var.diary_image_bucket_prefix },
   ] : []
+
+  media_bucket_prefixes = [var.media_bucket_prefix, var.diary_image_bucket_prefix]
 
   container_environment = concat(
     var.environment_variables,
@@ -161,7 +165,8 @@ resource "aws_iam_role" "task" {
   tags = local.tags
 }
 
-# Lets the app read/write/delete uploaded files under media_bucket_prefix only. The API
+# Lets the app read/write/delete uploaded files under its upload prefixes only (meditation
+# audio and diary photos). The API
 # streams nothing itself: it hands clients presigned GET URLs, signed with these same
 # credentials, so GetObject here is what makes those URLs work.
 data "aws_iam_policy_document" "media_access" {
@@ -170,7 +175,7 @@ data "aws_iam_policy_document" "media_access" {
   statement {
     sid       = "ReadWriteMediaObjects"
     actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
-    resources = ["${var.media_bucket_arn}/${var.media_bucket_prefix}*"]
+    resources = [for prefix in local.media_bucket_prefixes : "${var.media_bucket_arn}/${prefix}*"]
   }
 
   # Without ListBucket, S3 answers HeadObject/GetObject on a missing key with 403 instead of

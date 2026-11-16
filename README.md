@@ -113,10 +113,10 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
 
 - **Uploaded media on private S3** (`media-bucket` module), not an EFS volume on the task. Fargate's
-  own disk is wiped on every restart, so uploaded meditation MP3s need to live elsewhere; S3 bills
-  per GB stored/requested (cents/month for a few hundred MB of audio) with no always-on cost.
-  The bucket stays private: the API returns short-lived presigned URLs for playback, and the task
-  role can only touch the `meditations/` prefix. Versioning keeps deleted/overwritten files
+  own disk is wiped on every restart, so uploaded meditation MP3s and diary photos need to live
+  elsewhere; S3 bills per GB stored/requested (cents/month for a few hundred MB of audio) with no
+  always-on cost. The bucket stays private: the API returns short-lived presigned URLs, and the
+  task role can only touch the `meditations/` and `diary/` prefixes. Versioning keeps deleted/overwritten files
   restorable for 30 days.
 
 **No custom domain** — this project doesn't register one, so there's no Route53 hosted zone fee
