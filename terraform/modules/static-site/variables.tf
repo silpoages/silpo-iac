@@ -33,6 +33,30 @@ variable "certificate_arn" {
   default     = null
 }
 
+variable "zone_id" {
+  description = "Route53 hosted zone ID to create an alias record in for each entry in var.aliases. Leave null to skip (e.g. before a domain exists)."
+  type        = string
+  default     = null
+}
+
+variable "github_oidc_provider_arn" {
+  description = "ARN of the GitHub Actions OIDC provider (see the github-oidc-provider module). Leave null to skip creating a CI deploy role."
+  type        = string
+  default     = null
+}
+
+variable "github_repo" {
+  description = "GitHub repo allowed to assume the deploy role, as \"org/repo\" (e.g. \"silpoages/silpo-web\"). Required if github_oidc_provider_arn is set."
+  type        = string
+  default     = null
+}
+
+variable "github_deploy_branch" {
+  description = "Branch allowed to assume the deploy role via OIDC — CI can only deploy from this branch."
+  type        = string
+  default     = "master"
+}
+
 variable "tags" {
   description = "Extra tags applied to every resource."
   type        = map(string)

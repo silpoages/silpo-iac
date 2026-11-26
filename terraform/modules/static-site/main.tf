@@ -1,5 +1,6 @@
 locals {
-  use_custom_domain = var.certificate_arn != null
+  use_custom_domain  = var.certificate_arn != null
+  create_deploy_role = var.github_oidc_provider_arn != null
 
   tags = merge(var.tags, {
     Module = "static-site"
@@ -128,4 +129,100 @@ data "aws_iam_policy_document" "cloudfront_access" {
 resource "aws_s3_bucket_policy" "this" {
   bucket = aws_s3_bucket.this.id
   policy = data.aws_iam_policy_document.cloudfront_access.json
+}
+
+resource "aws_route53_record" "aliases_a" {
+  for_each = var.zone_id != null ? toset(var.aliases) : []
+
+  zone_id = var.zone_id
+  name    = each.value
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.this.domain_name
+    zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "aliases_aaaa" {
+  for_each = var.zone_id != null ? toset(var.aliases) : []
+
+  zone_id = var.zone_id
+  name    = each.value
+  type    = "AAAA"
+
+  alias {
+    name                   = aws_cloudfront_distribution.this.domain_name
+    zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+# Lets the GitHub repo's own CI assume this role via OIDC (no long-lived AWS keys in GitHub
+# secrets) to sync the build output to S3 and invalidate the CloudFront cache.
+data "aws_iam_policy_document" "github_actions_assume" {
+  count = local.create_deploy_role ? 1 : 0
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [var.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      # GitHub can present either the classic "repo:org/repo:ref:..." subject or, once an org
+      # enables immutable IDs in OIDC subject claims (org/repo renames can't be replayed
+      # against old trust policies), "repo:org@<org id>/repo@<repo id>:ref:...". Accept both so
+      # this doesn't silently break if that setting flips either way.
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}",
+        "repo:${split("/", var.github_repo)[0]}@*/${split("/", var.github_repo)[1]}@*:ref:refs/heads/${var.github_deploy_branch}",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "deploy" {
+  count              = local.create_deploy_role ? 1 : 0
+  name               = "${var.name}-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume[0].json
+
+  tags = local.tags
+}
+
+data "aws_iam_policy_document" "deploy_permissions" {
+  count = local.create_deploy_role ? 1 : 0
+
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.this.arn]
+  }
+
+  statement {
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.this.arn}/*"]
+  }
+
+  statement {
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = [aws_cloudfront_distribution.this.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "deploy" {
+  count  = local.create_deploy_role ? 1 : 0
+  name   = "${var.name}-deploy"
+  role   = aws_iam_role.deploy[0].id
+  policy = data.aws_iam_policy_document.deploy_permissions[0].json
 }

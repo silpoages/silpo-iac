@@ -82,8 +82,15 @@ variable "secrets" {
   default = []
 }
 
-variable "resend_api_key" {
-  description = "Resend API key, stored in Secrets Manager as RESEND_API_KEY. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
+variable "smtp_username" {
+  description = "SMTP account username, stored in Secrets Manager as SMTP_USERNAME. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "smtp_password" {
+  description = "SMTP account password (e.g. a Gmail app password), stored in Secrets Manager as SMTP_PASSWORD. Pass via a git-ignored .tfvars file, not committed inputs. Left empty, email sending won't work until set and re-applied."
   type        = string
   sensitive   = true
   default     = ""
@@ -101,10 +108,34 @@ variable "certificate_arn" {
   default     = null
 }
 
-variable "api_base_url_override" {
-  description = "Explicit API_BASE_URL env var value (e.g. https://api.silpo.app once a domain exists). Defaults to the ALB's own DNS name, over HTTPS if certificate_arn is set."
+variable "zone_id" {
+  description = "Route53 hosted zone ID to create an alias record for domain_name in. Leave null to skip."
   type        = string
   default     = null
+}
+
+variable "domain_name" {
+  description = "Domain name to point at the ALB (e.g. \"api.silpoages.com\"), used with zone_id and as the default API_BASE_URL host when certificate_arn is set."
+  type        = string
+  default     = null
+}
+
+variable "api_base_url_override" {
+  description = "Explicit API_BASE_URL env var value. Defaults to https://<domain_name> once domain_name and certificate_arn are set, then to the CloudFront domain if enable_cloudfront is true, otherwise the ALB's own DNS name (HTTP)."
+  type        = string
+  default     = null
+}
+
+variable "enable_cloudfront" {
+  description = "Front the ALB with a CloudFront distribution, so the API gets a real HTTPS endpoint (CloudFront's own default *.cloudfront.net certificate) with no domain or ACM cert needed. Use this when there's no custom domain_name/certificate_arn yet — without HTTPS somewhere, an HTTPS frontend (e.g. silpo-web on CloudFront) can't call this API at all (browsers block that 'mixed content' combination). Ignored once domain_name/certificate_arn are set."
+  type        = bool
+  default     = false
+}
+
+variable "cloudfront_price_class" {
+  description = "CloudFront price class for the enable_cloudfront distribution."
+  type        = string
+  default     = "PriceClass_100"
 }
 
 variable "log_retention_days" {
@@ -119,8 +150,72 @@ variable "enable_container_insights" {
   default     = false
 }
 
+variable "github_oidc_provider_arn" {
+  description = "ARN of the GitHub Actions OIDC provider (see the github-oidc-provider module). Leave null to skip creating a CI deploy role."
+  type        = string
+  default     = null
+}
+
+variable "github_repo" {
+  description = "GitHub repo allowed to assume the deploy role, as \"org/repo\" (e.g. \"silpoages/silpo-backend\"). Required if github_oidc_provider_arn is set."
+  type        = string
+  default     = null
+}
+
+variable "github_deploy_branch" {
+  description = "Branch allowed to assume the deploy role via OIDC — CI can only deploy from this branch."
+  type        = string
+  default     = "main"
+}
+
+variable "ecr_repository_arn" {
+  description = "ARN of the ECR repository CI pushes images to. Required if github_oidc_provider_arn is set, so the deploy role's push permission can be scoped to it."
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   description = "Extra tags applied to every resource."
   type        = map(string)
   default     = {}
+}
+
+variable "enable_execute_command" {
+  description = "Enable ECS Exec on the service, so `aws ecs execute-command` (a shell in the container) and SSM port forwarding through the task (e.g. to reach RDS from a laptop) work. Only tasks started after this is turned on get the agent."
+  type        = bool
+  default     = false
+}
+
+variable "db_access_secret_arn" {
+  description = "ARN of the RDS connection-details secret. When set together with enable_execute_command, creates an IAM group whose members can read that secret and open a port-forwarding tunnel to the database through the service's tasks (see scripts/db-tunnel.sh). Leave null to skip."
+  type        = string
+  default     = null
+}
+
+variable "media_bucket_arn" {
+  description = "ARN of the S3 bucket for files uploaded through the API (see the media-bucket module). When set, the task role gets read/write/delete access under media_bucket_prefix and diary_image_bucket_prefix (plus ListBucket on the bucket, so missing files answer 404 instead of 403) and the container gets the AUDIO_STORAGE_BACKEND=s3 / AUDIO_S3_* / DIARY_IMAGE_S3_PREFIX env vars silpo-backend reads. Leave null to skip (uploads then go to the task's ephemeral disk and are lost on restart)."
+  type        = string
+  default     = null
+}
+
+variable "media_bucket_prefix" {
+  description = "Key prefix (with trailing slash) the API stores uploaded meditation audio under in media_bucket_arn."
+  type        = string
+  default     = "meditations/"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9!_.*'()-]+(/[A-Za-z0-9!_.*'()-]+)*/$", var.media_bucket_prefix))
+    error_message = "media_bucket_prefix must be a non-empty S3 key prefix ending with \"/\" (e.g. \"meditations/\")."
+  }
+}
+
+variable "diary_image_bucket_prefix" {
+  description = "Key prefix (with trailing slash) the API stores diary entry photos under in media_bucket_arn. Must not overlap media_bucket_prefix."
+  type        = string
+  default     = "diary/"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9!_.*'()-]+(/[A-Za-z0-9!_.*'()-]+)*/$", var.diary_image_bucket_prefix))
+    error_message = "diary_image_bucket_prefix must be a non-empty S3 key prefix ending with \"/\" (e.g. \"diary/\")."
+  }
 }

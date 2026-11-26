@@ -39,8 +39,12 @@ terraform/
     networking/    # VPC, public/private subnets, optional NAT gateway
     ecr/            # Container registry for the silpo-backend image
     rds-postgres/   # RDS instance + Secrets Manager secret with connection details
-    ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/Resend)
+    ecs-service/    # ECS cluster, Fargate service, ALB, task's own app secrets (JWT/SMTP)
     static-site/    # S3 bucket + CloudFront distribution for a static SPA (silpo-web)
+    media-bucket/   # Private S3 bucket for files uploaded through the API (meditation MP3s)
+    github-oidc-provider/ # GitHub Actions OIDC identity provider (one per AWS account)
+scripts/
+  db-tunnel.sh      # Opens a tunnel to RDS for DBeaver/psql (see docs/db-access.md)
 terragrunt/
   terragrunt.hcl    # Root config: S3 remote state (native locking) + AWS provider generation
   live/
@@ -49,9 +53,22 @@ terragrunt/
       networking/
       ecr/
       rds/
+      github-oidc/  # GitHub Actions OIDC provider, consumed by api/web's deploy roles
+      media/        # Private bucket for uploaded meditation audio, consumed by api
       api/
       web/
 ```
+
+No custom domain yet: both `api` and `web` are reached through CloudFront's own default
+`*.cloudfront.net` domains (that default domain comes with its own CloudFront-issued
+certificate — no ACM cert or Route53 zone needed), via `ecs-service`'s `enable_cloudfront` and
+`static-site`'s always-on CloudFront respectively. `api`'s CloudFront distribution sits in front
+of the ALB purely to get a real HTTPS endpoint — without it, `web` (HTTPS) couldn't call `api`
+(would otherwise be plain HTTP) at all, since browsers block that "mixed content" combination. If
+a domain is registered later, both `ecs-service` and `static-site` already support `domain_name` /
+`certificate_arn` / `zone_id` inputs — wiring those back in (which also turns off `api`'s
+CloudFront passthrough, see `enable_cloudfront`'s description) plus a `dns` unit/module to issue
+the ACM certs is a natural next step at that point.
 
 `silpo-mobile` (Expo/React Native) has no unit here — it isn't deployed to AWS. Distribution goes
 through the app stores, and builds/OTA updates through Expo's own EAS service.
@@ -63,6 +80,13 @@ Running a full second copy (ALB + RDS + Fargate) would roughly double the fixed 
 a project with this little traffic, so it wasn't worth it. If that changes (e.g. real users,
 need for a safe place to test destructive changes), copy `terragrunt/live/shared/` to a new
 `terragrunt/live/<name>/` folder with its own `env.hcl` — every module already supports it.
+
+## Database access
+
+RDS is private (no public endpoint, no bastion). To reach it from a laptop — DBeaver, psql — run
+`scripts/db-tunnel.sh`, which opens an SSM port-forwarding tunnel through the running API task
+(ECS Exec, enabled in the `api` unit). Access is granted by adding an IAM user to the
+`silpo-shared-db-access` group. Step-by-step guide for the team: [docs/db-access.md](docs/db-access.md).
 
 ## Cost trade-offs
 
@@ -87,6 +111,20 @@ Defaults here explicitly trade a bit of resilience/observability for a lower, mo
   hosting bills per request/GB served, not per second of uptime — at this traffic it's cents/month,
   not another ~US$20-30 of always-on compute. `PriceClass_100` (North America + Europe edge
   locations only) keeps it cheap; WAF and access logging are left off for the same cost reason.
+
+- **Uploaded media on private S3** (`media-bucket` module), not an EFS volume on the task. Fargate's
+  own disk is wiped on every restart, so uploaded meditation MP3s and diary photos need to live
+  elsewhere; S3 bills per GB stored/requested (cents/month for a few hundred MB of audio) with no
+  always-on cost. The bucket stays private: the API returns short-lived presigned URLs, and the
+  task role can only touch the `meditations/` and `diary/` prefixes. Versioning keeps deleted/overwritten files
+  restorable for 30 days.
+
+**No custom domain** — this project doesn't register one, so there's no Route53 hosted zone fee
+(~US$0.50/month) or annual registrar fee on top of the estimate below. `api` and `web` are reached
+through CloudFront's own default AWS domains instead (see [Repository layout](#repository-layout)),
+which is also why `api` gets its own CloudFront distribution (`enable_cloudfront`) in front of the
+ALB — a bit of extra CloudFront cost (same per-request/GB pricing as `web`'s, cents/month at this
+traffic) in exchange for an HTTPS endpoint `web` can actually call without a domain.
 
 For the actual resource-by-resource number, on-demand pricing, excluding AWS free tier — see
 [Cost estimate](#cost-estimate) below, generated from this repo's own code rather than typed by
@@ -148,30 +186,42 @@ Module path: terraform/modules/rds-postgres
 Project: ecs-service
 Module path: terraform/modules/ecs-service
 
- Name                                            Monthly Qty  Unit                    Monthly Cost   
-                                                                                                     
- aws_lb.this                                                                                         
- ├─ Application load balancer                            730  hours                         $16.43   
- └─ Load balancer capacity units           Monthly cost depends on usage: $5.84 per LCU              
-                                                                                                     
- aws_ecs_service.this                                                                                
- ├─ Per GB per hour                                      0.5  GB                             $1.62   
- └─ Per vCPU per hour                                   0.25  CPU                            $7.39   
-                                                                                                     
- aws_secretsmanager_secret.jwt_secret                                                                
- ├─ Secret                                                 1  months                         $0.40   
- └─ API requests                           Monthly cost depends on usage: $0.05 per 10k requests     
-                                                                                                     
- aws_secretsmanager_secret.resend_api_key                                                            
- ├─ Secret                                                 1  months                         $0.40   
- └─ API requests                           Monthly cost depends on usage: $0.05 per 10k requests     
-                                                                                                     
- aws_cloudwatch_log_group.this                                                                       
- ├─ Data ingested                          Monthly cost depends on usage: $0.50 per GB               
- ├─ Archival Storage                       Monthly cost depends on usage: $0.03 per GB               
- └─ Insights queries data scanned          Monthly cost depends on usage: $0.005 per GB              
-                                                                                                     
- Project total                                                                              $26.24   
+ Name                                                    Monthly Qty  Unit                    Monthly Cost   
+                                                                                                             
+ aws_lb.this                                                                                                 
+ ├─ Application load balancer                                    730  hours                         $16.43   
+ └─ Load balancer capacity units                   Monthly cost depends on usage: $5.84 per LCU              
+                                                                                                             
+ aws_ecs_service.this                                                                                        
+ ├─ Per GB per hour                                              0.5  GB                             $1.62   
+ └─ Per vCPU per hour                                           0.25  CPU                            $7.39   
+                                                                                                             
+ aws_secretsmanager_secret.jwt_secret                                                                        
+ ├─ Secret                                                         1  months                         $0.40   
+ └─ API requests                                   Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                             
+ aws_secretsmanager_secret.smtp_password                                                                     
+ ├─ Secret                                                         1  months                         $0.40   
+ └─ API requests                                   Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                             
+ aws_secretsmanager_secret.smtp_username                                                                     
+ ├─ Secret                                                         1  months                         $0.40   
+ └─ API requests                                   Monthly cost depends on usage: $0.05 per 10k requests     
+                                                                                                             
+ aws_cloudfront_distribution.api[0]                                                                          
+ ├─ Invalidation requests (first 1k)               Monthly cost depends on usage: $0.00 per paths            
+ └─ US, Mexico, Canada                                                                                       
+    ├─ Data transfer out to internet (first 10TB)  Monthly cost depends on usage: $0.085 per GB              
+    ├─ Data transfer out to origin                 Monthly cost depends on usage: $0.02 per GB               
+    ├─ HTTP requests                               Monthly cost depends on usage: $0.0075 per 10k requests   
+    └─ HTTPS requests                              Monthly cost depends on usage: $0.01 per 10k requests     
+                                                                                                             
+ aws_cloudwatch_log_group.this                                                                               
+ ├─ Data ingested                                  Monthly cost depends on usage: $0.50 per GB               
+ ├─ Archival Storage                               Monthly cost depends on usage: $0.03 per GB               
+ └─ Insights queries data scanned                  Monthly cost depends on usage: $0.005 per GB              
+                                                                                                             
+ Project total                                                                                      $26.64   
 
 ──────────────────────────────────
 Project: static-site
@@ -197,14 +247,30 @@ Module path: terraform/modules/static-site
                                                                                                              
  Project total                                                                                       $0.00   
 
- OVERALL TOTAL                                                                                     $40.62 
+──────────────────────────────────
+Project: media-bucket
+Module path: terraform/modules/media-bucket
+
+ Name                                             Monthly Qty  Unit                    Monthly Cost   
+                                                                                                      
+ aws_s3_bucket.this                                                                                   
+ └─ Standard                                                                                          
+    ├─ Storage                              Monthly cost depends on usage: $0.023 per GB              
+    ├─ PUT, COPY, POST, LIST requests       Monthly cost depends on usage: $0.005 per 1k requests     
+    ├─ GET, SELECT, and all other requests  Monthly cost depends on usage: $0.0004 per 1k requests    
+    ├─ Select data scanned                  Monthly cost depends on usage: $0.002 per GB              
+    └─ Select data returned                 Monthly cost depends on usage: $0.0007 per GB             
+                                                                                                      
+ Project total                                                                                $0.00   
+
+ OVERALL TOTAL                                                                              $41.02 
 
 *Usage costs can be estimated by updating Infracost Cloud settings, see docs for other options.
 
 ──────────────────────────────────
-46 cloud resources were detected:
-∙ 10 were estimated
-∙ 36 were free
+56 cloud resources were detected:
+∙ 13 were estimated
+∙ 43 were free
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Project                                            ┃ Baseline cost ┃ Usage cost* ┃ Total cost ┃
@@ -212,8 +278,9 @@ Module path: terraform/modules/static-site
 ┃ networking                                         ┃         $0.00 ┃           - ┃      $0.00 ┃
 ┃ ecr                                                ┃         $0.00 ┃           - ┃      $0.00 ┃
 ┃ rds-postgres                                       ┃           $14 ┃           - ┃        $14 ┃
-┃ ecs-service                                        ┃           $26 ┃           - ┃        $26 ┃
+┃ ecs-service                                        ┃           $27 ┃           - ┃        $27 ┃
 ┃ static-site                                        ┃         $0.00 ┃           - ┃      $0.00 ┃
+┃ media-bucket                                       ┃         $0.00 ┃           - ┃      $0.00 ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━┻━━━━━━━━━━━━┛
 ```
 <!-- infracost-end -->
@@ -232,14 +299,16 @@ Module path: terraform/modules/static-site
 1. **Set the real AWS account ID.** Edit `terragrunt/live/shared/env.hcl` and replace the
    placeholder `account_id`. This namespaces the Terraform state bucket
    (`silpo-terraform-state-<account_id>`) so it doesn't collide with anyone else's AWS account.
-2. **Set the real Resend API key.** Terraform can't invent a real third-party API key, so it's
-   not a committed input:
+2. **Set the real SMTP credentials.** Terraform can't invent a real mailbox login, so it's not
+   a committed input:
    ```bash
    cp terragrunt/live/shared/api/secrets.tfvars.example terragrunt/live/shared/api/secrets.tfvars
    ```
-   Edit `secrets.tfvars` (git-ignored) and fill in the real key. Skipping this step is fine —
-   `resend_api_key` defaults to an empty string — but email sending won't work until it's set
-   and the `api` unit is re-applied.
+   Edit `secrets.tfvars` (git-ignored) and fill in the real `smtp_username`/`smtp_password`
+   (for Gmail, `smtp_password` must be an app password, not the account password). Also update
+   the `EMAIL_FROM` value in `terragrunt/live/shared/api/terragrunt.hcl` to match that mailbox.
+   Skipping this step is fine — both default to an empty string — but email sending won't work
+   until they're set and the `api` unit is re-applied.
 3. **Apply.** The `--backend-bootstrap` flag has Terragrunt create the S3 state bucket
    automatically if it doesn't exist yet (state locking uses S3's own native locking, no
    DynamoDB table needed) — no separate bootstrap step:
@@ -247,17 +316,36 @@ Module path: terraform/modules/static-site
    cd terragrunt/live/shared
    terragrunt apply --all --backend-bootstrap
    ```
-   Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds` → `api`.
-4. **Push an image.** The `ecr` unit's output (`repository_url`) is where `silpo-backend`'s CI
-   should push images. The `api` unit currently deploys the `:latest` tag; wiring a real
-   build-and-deploy pipeline in `silpo-backend` is a natural next step.
-5. **Deploy the web build.** The `web` unit only provisions the bucket and distribution — it
-   doesn't build or upload `silpo-web`. After building it there:
-   ```bash
-   aws s3 sync dist/ s3://<web unit's bucket_name output> --delete
-   aws cloudfront create-invalidation --distribution-id <web unit's distribution_id output> --paths "/*"
-   ```
-   Wiring this into `silpo-web`'s own CI is a natural next step, same as the backend's image push.
+   Terragrunt resolves the dependency order itself: `networking` → `ecr`/`rds`/`media` → `api`.
+4. **Wire up `silpo-backend`'s deploy.** The `api` unit provisions a `deploy` IAM role that
+   `silpo-backend`'s own CI assumes via the `github-oidc` unit's OIDC provider — see the
+   `deploy` job in `silpo-backend/.github/workflows/ci.yml`. The `ecr` unit's
+   `image_tag_mutability` is `MUTABLE` specifically so that job can keep re-pushing the
+   `:latest` tag the `api` unit's task definition always deploys. After applying, set these as
+   **repository variables** in `silpo-backend`'s GitHub repo settings, from this stack's
+   outputs:
+   - `AWS_DEPLOY_ROLE_ARN` ← `api` unit's `deploy_role_arn` output
+   - `AWS_ECR_REPOSITORY_URL` ← `ecr` unit's `repository_url` output
+   - `AWS_ECS_CLUSTER` ← `api` unit's `ecs_cluster_name` output
+   - `AWS_ECS_SERVICE` ← `api` unit's `ecs_service_name` output
+
+   Once set, every push to `silpo-backend`'s `main` branch builds and pushes a new image, then
+   forces the ECS service to redeploy it.
+5. **Wire up `silpo-web`'s deploy.** The `web` unit provisions a `deploy` IAM role that
+   `silpo-web`'s own CI assumes via the `github-oidc` unit's OIDC provider (no long-lived AWS
+   keys in GitHub) — see the `deploy` job in `silpo-web/.github/workflows/ci.yml`. After
+   applying, set these as **repository variables** (not secrets — none of them are sensitive)
+   in `silpo-web`'s GitHub repo settings (Settings → Secrets and variables → Actions →
+   Variables), from this stack's `web` unit outputs:
+   - `AWS_DEPLOY_ROLE_ARN` ← `deploy_role_arn`
+   - `AWS_S3_BUCKET` ← `bucket_name`
+   - `AWS_CLOUDFRONT_DISTRIBUTION_ID` ← `distribution_id`
+   - `VITE_API_BASE_URL` ← `https://` + the `api` unit's `cloudfront_domain_name` output (no
+     custom domain yet, so this is an AWS-generated hostname, not a fixed URL — re-set this
+     variable if that CloudFront distribution is ever recreated)
+
+   Once set, every push to `silpo-web`'s `master` branch builds with that `VITE_API_BASE_URL`,
+   syncs `dist/` to the bucket, and invalidates the CloudFront cache automatically.
 
 ## CI/CD
 

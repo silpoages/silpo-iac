@@ -3,16 +3,41 @@ locals {
     Module = "ecs-service"
   })
 
+  create_deploy_role = var.github_oidc_provider_arn != null
+
   serve_https = var.certificate_arn != null
+
+  # Only front the ALB with CloudFront when there's no real domain/ACM cert for it yet —
+  # once a domain is wired up, the ALB already serves HTTPS directly and this would just be
+  # an extra, redundant hop.
+  create_cloudfront = var.enable_cloudfront && !local.serve_https
 
   api_base_url = coalesce(
     var.api_base_url_override,
+    local.serve_https && var.domain_name != null ? "https://${var.domain_name}" : null,
+    local.create_cloudfront ? "https://${aws_cloudfront_distribution.api[0].domain_name}" : null,
     "${local.serve_https ? "https" : "http"}://${aws_lb.this.dns_name}",
   )
+
+  use_media_bucket = var.media_bucket_arn != null
+
+  # Uploaded files (meditation MP3s and diary photos) go to S3: Fargate's own disk is wiped
+  # on every task restart. silpo-backend reads these to pick its S3 storage backend; diary
+  # photos share the bucket and backend switch, under their own prefix.
+  media_environment = local.use_media_bucket ? [
+    { name = "AUDIO_STORAGE_BACKEND", value = "s3" },
+    { name = "AUDIO_S3_BUCKET", value = element(split(":::", var.media_bucket_arn), 1) },
+    { name = "AUDIO_S3_PREFIX", value = var.media_bucket_prefix },
+    { name = "AUDIO_S3_REGION", value = data.aws_region.current.name },
+    { name = "DIARY_IMAGE_S3_PREFIX", value = var.diary_image_bucket_prefix },
+  ] : []
+
+  media_bucket_prefixes = [var.media_bucket_prefix, var.diary_image_bucket_prefix]
 
   container_environment = concat(
     var.environment_variables,
     [{ name = "API_BASE_URL", value = local.api_base_url }],
+    local.media_environment,
   )
 }
 
@@ -80,20 +105,32 @@ resource "aws_secretsmanager_secret_version" "jwt_secret" {
 }
 
 # tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
-resource "aws_secretsmanager_secret" "resend_api_key" {
-  name = "${var.name}/resend-api-key"
+resource "aws_secretsmanager_secret" "smtp_username" {
+  name = "${var.name}/smtp-username"
   tags = local.tags
 }
 
-resource "aws_secretsmanager_secret_version" "resend_api_key" {
-  secret_id     = aws_secretsmanager_secret.resend_api_key.id
-  secret_string = var.resend_api_key
+resource "aws_secretsmanager_secret_version" "smtp_username" {
+  secret_id     = aws_secretsmanager_secret.smtp_username.id
+  secret_string = var.smtp_username
+}
+
+# tfsec:ignore:aws-ssm-secret-use-customer-key -- default AWS-managed key, avoids a ~US$1/month CMK for a low-value secret
+resource "aws_secretsmanager_secret" "smtp_password" {
+  name = "${var.name}/smtp-password"
+  tags = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "smtp_password" {
+  secret_id     = aws_secretsmanager_secret.smtp_password.id
+  secret_string = var.smtp_password
 }
 
 locals {
   internal_secret_arns = [
     aws_secretsmanager_secret.jwt_secret.arn,
-    aws_secretsmanager_secret.resend_api_key.arn,
+    aws_secretsmanager_secret.smtp_username.arn,
+    aws_secretsmanager_secret.smtp_password.arn,
   ]
 
   all_secret_arns = concat(local.internal_secret_arns, var.secret_arns)
@@ -101,7 +138,8 @@ locals {
   all_secrets = concat(
     [
       { name = "JWT_SECRET_KEY", value_from = aws_secretsmanager_secret.jwt_secret.arn },
-      { name = "RESEND_API_KEY", value_from = aws_secretsmanager_secret.resend_api_key.arn },
+      { name = "SMTP_USERNAME", value_from = aws_secretsmanager_secret.smtp_username.arn },
+      { name = "SMTP_PASSWORD", value_from = aws_secretsmanager_secret.smtp_password.arn },
     ],
     var.secrets,
   )
@@ -125,6 +163,39 @@ resource "aws_iam_role" "task" {
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
 
   tags = local.tags
+}
+
+# Lets the app read/write/delete uploaded files under its upload prefixes only (meditation
+# audio and diary photos). The API
+# streams nothing itself: it hands clients presigned GET URLs, signed with these same
+# credentials, so GetObject here is what makes those URLs work.
+data "aws_iam_policy_document" "media_access" {
+  count = local.use_media_bucket ? 1 : 0
+
+  statement {
+    sid       = "ReadWriteMediaObjects"
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = [for prefix in local.media_bucket_prefixes : "${var.media_bucket_arn}/${prefix}*"]
+  }
+
+  # Without ListBucket, S3 answers HeadObject/GetObject on a missing key with 403 instead of
+  # 404, so the API can't tell "no such file" from a real permission error (and its media
+  # route would 500 instead of 404). Not narrowed with an s3:prefix condition: object
+  # requests carry no s3:prefix key, so S3's implicit ListBucket check would fail and the
+  # 403 would stay. The bucket only holds API uploads (see media-bucket), so listing it
+  # exposes nothing beyond what the role can already read.
+  statement {
+    sid       = "ListMediaBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [var.media_bucket_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "media_access" {
+  count  = local.use_media_bucket ? 1 : 0
+  name   = "${var.name}-media-access"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.media_access[0].json
 }
 
 resource "aws_security_group" "alb" {
@@ -178,11 +249,11 @@ resource "aws_security_group" "service" {
   }
 
   egress {
-    description = "All outbound traffic (e.g. RDS, Resend API)"
+    description = "All outbound traffic (e.g. RDS, SMTP server)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- needs internet egress (Resend API) since there's no NAT gateway
+    cidr_blocks = ["0.0.0.0/0"] # tfsec:ignore:aws-ec2-no-public-egress-sgr -- needs internet egress (SMTP server) since there's no NAT gateway
   }
 
   tags = merge(local.tags, {
@@ -262,6 +333,70 @@ resource "aws_lb_listener" "https" {
   }
 }
 
+resource "aws_route53_record" "this" {
+  count = var.zone_id != null && var.domain_name != null ? 1 : 0
+
+  zone_id = var.zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.this.dns_name
+    zone_id                = aws_lb.this.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# tfsec:ignore:aws-cloudfront-enable-waf -- extra cost not needed for a low-traffic API
+# tfsec:ignore:aws-cloudfront-enable-logging -- extra cost not needed for a low-traffic API
+resource "aws_cloudfront_distribution" "api" {
+  count = local.create_cloudfront ? 1 : 0
+
+  enabled     = true
+  price_class = var.cloudfront_price_class
+  comment     = "${var.name}-api"
+
+  origin {
+    domain_name = aws_lb.this.dns_name
+    origin_id   = aws_lb.this.id
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only" # the ALB itself has no cert to talk HTTPS with
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  default_cache_behavior {
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = aws_lb.this.id
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = true
+    # AWS managed policies: cache nothing (every response is dynamic/per-user) and pass
+    # through every header, query string and cookie the API might care about (e.g.
+    # Authorization), except Host — CloudFront still needs to send the ALB's own Host so it
+    # resolves to the right target group.
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  # No custom domain to attach an ACM cert to — CloudFront's own default certificate for its
+  # *.cloudfront.net domain is enough to get a real, browser-trusted HTTPS endpoint.
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  tags = local.tags
+}
+
 resource "aws_ecs_task_definition" "this" {
   family                   = var.name
   requires_compatibilities = ["FARGATE"]
@@ -307,6 +442,8 @@ resource "aws_ecs_service" "this" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
+  enable_execute_command = var.enable_execute_command
+
   network_configuration {
     subnets          = var.task_subnet_ids
     security_groups  = [aws_security_group.service.id]
@@ -322,4 +459,206 @@ resource "aws_ecs_service" "this" {
   tags = local.tags
 
   depends_on = [aws_lb_listener.http]
+}
+
+# Lets the GitHub repo's own CI assume this role via OIDC (no long-lived AWS keys in GitHub
+# secrets) to push a new image and force the ECS service to redeploy it.
+data "aws_iam_policy_document" "github_actions_assume" {
+  count = local.create_deploy_role ? 1 : 0
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [var.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      # GitHub can present either the classic "repo:org/repo:ref:..." subject or, once an org
+      # enables immutable IDs in OIDC subject claims (org/repo renames can't be replayed
+      # against old trust policies), "repo:org@<org id>/repo@<repo id>:ref:...". Accept both so
+      # this doesn't silently break if that setting flips either way.
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/${var.github_deploy_branch}",
+        "repo:${split("/", var.github_repo)[0]}@*/${split("/", var.github_repo)[1]}@*:ref:refs/heads/${var.github_deploy_branch}",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "deploy" {
+  count              = local.create_deploy_role ? 1 : 0
+  name               = "${var.name}-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume[0].json
+
+  tags = local.tags
+}
+
+data "aws_iam_policy_document" "deploy_permissions" {
+  count = local.create_deploy_role ? 1 : 0
+
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+    ]
+    resources = [var.ecr_repository_arn]
+  }
+
+  statement {
+    actions = ["ecs:UpdateService", "ecs:DescribeServices"]
+    # aws_ecs_service.this.id is the service's ARN (the AWS provider doesn't expose a
+    # separate .arn attribute on this resource).
+    resources = [aws_ecs_service.this.id]
+  }
+
+  # Migrations: CI reads the service's current task definition and runs it once as a one-off
+  # task with the command overridden to `alembic upgrade head`, before redeploying the service.
+  statement {
+    sid       = "ReadTaskDefinition"
+    actions   = ["ecs:DescribeTaskDefinition"]
+    resources = ["*"] # tfsec:ignore:aws-iam-no-policy-wildcards -- DescribeTaskDefinition doesn't support resource-level permissions
+  }
+
+  statement {
+    sid       = "RunMigrationTask"
+    actions   = ["ecs:RunTask"]
+    resources = ["${aws_ecs_task_definition.this.arn_without_revision}:*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [aws_ecs_cluster.this.arn]
+    }
+  }
+
+  statement {
+    sid       = "WaitForMigrationTask"
+    actions   = ["ecs:DescribeTasks"]
+    resources = [local.cluster_tasks_arn]
+  }
+
+  # RunTask has to hand the task definition's own roles to ECS.
+  statement {
+    sid       = "PassTaskRoles"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.execution.arn, aws_iam_role.task.arn]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "deploy" {
+  count  = local.create_deploy_role ? 1 : 0
+  name   = "${var.name}-deploy"
+  role   = aws_iam_role.deploy[0].id
+  policy = data.aws_iam_policy_document.deploy_permissions[0].json
+}
+
+# ECS Exec: the SSM agent ECS injects into each task needs these to open its control/data
+# channels. Used for `aws ecs execute-command` and for port forwarding to RDS through a task.
+data "aws_iam_policy_document" "execute_command" {
+  count = var.enable_execute_command ? 1 : 0
+
+  statement {
+    actions = [
+      "ssmmessages:CreateControlChannel",
+      "ssmmessages:CreateDataChannel",
+      "ssmmessages:OpenControlChannel",
+      "ssmmessages:OpenDataChannel",
+    ]
+    resources = ["*"] # tfsec:ignore:aws-iam-no-policy-wildcards -- ssmmessages actions don't support resource-level permissions
+  }
+}
+
+resource "aws_iam_role_policy" "execute_command" {
+  count  = var.enable_execute_command ? 1 : 0
+  name   = "${var.name}-execute-command"
+  role   = aws_iam_role.task.id
+  policy = data.aws_iam_policy_document.execute_command[0].json
+}
+
+# Database access for humans: add an IAM user to this group and they can run
+# scripts/db-tunnel.sh to reach RDS from their own machine (DBeaver, psql, ...) through a
+# running task — no bastion, no public database, no inbound port opened anywhere.
+locals {
+  create_db_access_group = var.enable_execute_command && var.db_access_secret_arn != null
+
+  # Tasks of this cluster: arn:aws:ecs:<region>:<account>:task/<cluster>/<task id>
+  cluster_tasks_arn = "${replace(aws_ecs_cluster.this.arn, ":cluster/", ":task/")}/*"
+}
+
+data "aws_iam_policy_document" "db_access" {
+  count = local.create_db_access_group ? 1 : 0
+
+  statement {
+    sid       = "FindRunningTask"
+    actions   = ["ecs:ListTasks", "ecs:DescribeTasks"]
+    resources = ["*"] # tfsec:ignore:aws-iam-no-policy-wildcards -- read-only, scoped to this cluster by the condition below
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [aws_ecs_cluster.this.arn]
+    }
+  }
+
+  statement {
+    sid       = "ExecIntoTask"
+    actions   = ["ecs:ExecuteCommand"]
+    resources = [aws_ecs_cluster.this.arn, local.cluster_tasks_arn]
+  }
+
+  statement {
+    sid     = "PortForwardThroughTask"
+    actions = ["ssm:StartSession"]
+    resources = [
+      local.cluster_tasks_arn,
+      "arn:aws:ssm:${data.aws_region.current.name}::document/AWS-StartPortForwardingSessionToRemoteHost",
+    ]
+  }
+
+  statement {
+    sid       = "ManageOwnSessions"
+    actions   = ["ssm:TerminateSession", "ssm:ResumeSession"]
+    resources = ["arn:aws:ssm:*:*:session/$${aws:userid}-*"]
+  }
+
+  statement {
+    sid       = "ReadDatabaseCredentials"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [var.db_access_secret_arn]
+  }
+}
+
+resource "aws_iam_group" "db_access" {
+  count = local.create_db_access_group ? 1 : 0
+  name  = "${var.name}-db-access"
+}
+
+resource "aws_iam_group_policy" "db_access" {
+  count  = local.create_db_access_group ? 1 : 0
+  name   = "${var.name}-db-access"
+  group  = aws_iam_group.db_access[0].name
+  policy = data.aws_iam_policy_document.db_access[0].json
 }
